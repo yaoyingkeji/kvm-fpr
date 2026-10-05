@@ -178,6 +178,15 @@ static void i_OnOpenHome(Window *window, Event *e)
 
 /*---------------------------------------------------------------------------*/
 
+static void i_OnOpenProject(Window *window, Event *e)
+{
+    unref(window);
+    unref(e);
+    i_OpenUrl("https://github.com/yaoyingkeji/kvm-fpr");
+}
+
+/*---------------------------------------------------------------------------*/
+
 static void i_OnMail1(Window *window, Event *e)
 {
     unref(window);
@@ -263,13 +272,13 @@ static void i_OnAbout(App *app, Event *e)
     Layout *layout;
     ImageView *icon;
     Image *img;
-    Label *title, *copyright, *mail1, *mail2, *web, *lic;
+    Label *title, *copyright, *mail1, *mail2, *web, *project, *lic;
     Button *ok;
 
     unref(e);
     about = window_create(ekWINDOW_TITLE | ekWINDOW_CLOSE);
     panel = panel_create();
-    layout = layout_create(2, 7);
+    layout = layout_create(2, 8);
 
     icon = imageview_create();
     imageview_size(icon, s2df(72, 72));
@@ -299,6 +308,12 @@ static void i_OnAbout(App *app, Event *e)
     label_style_over(web, ekFUNDERLINE);
     label_color_over(web, color_rgb(0x0b, 0x3d, 0x91));
     label_OnClick(web, listener(about, i_OnOpenHome, Window));
+    project = label_create();
+    label_text(project, "项目主页：https://github.com/yaoyingkeji/kvm-fpr");
+    label_color(project, color_rgb(0x1a, 0x73, 0xe8));
+    label_style_over(project, ekFUNDERLINE);
+    label_color_over(project, color_rgb(0x0b, 0x3d, 0x91));
+    label_OnClick(project, listener(about, i_OnOpenProject, Window));
     lic = label_create();
     label_text(lic, "协议：GPLv3 (GNU General Public License v3)");
 
@@ -312,9 +327,10 @@ static void i_OnAbout(App *app, Event *e)
     layout_label(layout, mail1, 1, 2);
     layout_label(layout, mail2, 1, 3);
     layout_label(layout, web, 1, 4);
-    layout_label(layout, lic, 1, 5);
-    layout_button(layout, ok, 0, 6);
-    layout_halign(layout, 0, 6, ekCENTER);
+    layout_label(layout, project, 1, 5);
+    layout_label(layout, lic, 1, 6);
+    layout_button(layout, ok, 0, 7);
+    layout_halign(layout, 0, 7, ekCENTER);
     layout_valign(layout, 1, 0, ekTOP);
     layout_margin(layout, 14);
     layout_hmargin(layout, 0, 12);
@@ -323,7 +339,8 @@ static void i_OnAbout(App *app, Event *e)
     layout_vmargin(layout, 2, 4);
     layout_vmargin(layout, 3, 4);
     layout_vmargin(layout, 4, 4);
-    layout_vmargin(layout, 5, 12);
+    layout_vmargin(layout, 5, 4);
+    layout_vmargin(layout, 6, 12);
 
     panel_layout(panel, layout);
     window_panel(about, panel);
