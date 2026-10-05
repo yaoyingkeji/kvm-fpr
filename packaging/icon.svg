@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3b8cff"/>
+      <stop offset="1" stop-color="#0b3d91"/>
+    </linearGradient>
+    <linearGradient id="chip" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e8f0ff"/>
+    </linearGradient>
+  </defs>
+  <!-- 背景圆角方块 -->
+  <rect x="16" y="16" width="480" height="480" rx="104" fill="url(#bg)"/>
+  <!-- 芯片主体 -->
+  <rect x="146" y="146" width="220" height="220" rx="28" fill="url(#chip)"/>
+  <rect x="196" y="196" width="120" height="120" rx="16" fill="#3b8cff"/>
+  <!-- 芯片引脚 -->
+  <g stroke="#ffffff" stroke-width="16" stroke-linecap="round">
+    <line x1="196" y1="146" x2="196" y2="96"/>
+    <line x1="256" y1="146" x2="256" y2="96"/>
+    <line x1="316" y1="146" x2="316" y2="96"/>
+    <line x1="196" y1="366" x2="196" y2="416"/>
+    <line x1="256" y1="366" x2="256" y2="416"/>
+    <line x1="316" y1="366" x2="316" y2="416"/>
+    <line x1="146" y1="196" x2="96" y2="196"/>
+    <line x1="146" y1="256" x2="96" y2="256"/>
+    <line x1="146" y1="316" x2="96" y2="316"/>
+    <line x1="366" y1="196" x2="416" y2="196"/>
+    <line x1="366" y1="256" x2="416" y2="256"/>
+    <line x1="366" y1="316" x2="416" y2="316"/>
+  </g>
+  <!-- 刷新箭头（环形） -->
+  <g transform="translate(256,256)">
+    <path d="M 0 -74 A 74 74 0 1 1 -52.3 -52.3" fill="none" stroke="#ffffff" stroke-width="22" stroke-linecap="round"/>
+    <polygon points="-74,-8 -52,-20 -60,4" fill="#ffffff"/>
+    <path d="M 0 74 A 74 74 0 1 1 52.3 52.3" fill="none" stroke="#cfe3ff" stroke-width="22" stroke-linecap="round"/>
+    <polygon points="74,8 52,20 60,-4" fill="#cfe3ff"/>
+  </g>
+</svg>

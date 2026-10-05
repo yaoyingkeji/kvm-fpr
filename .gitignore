@@ -1,0 +1,12 @@
+# 构建产物
+build/
+*.deb
+*.AppImage
+appimagetool
+
+# 系统与编辑器
+*.swp
+*~
+.DS_Store
+.idea/
+.vscode/

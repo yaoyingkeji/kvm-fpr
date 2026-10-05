@@ -1,0 +1,14 @@
+[Desktop Entry]
+Name=KVM 指纹刷新工具
+Name[en]=KVM Fingerprint Refresher
+GenericName=虚拟机指纹刷新
+GenericName[en]=VM Fingerprint Refresh
+Comment=刷新 KVM 虚拟机硬件指纹与机器码
+Comment[en]=Refresh KVM VM hardware fingerprint like re-cloning
+Exec=kvm-fpr
+Icon=kvm-fpr
+Terminal=false
+Type=Application
+Categories=System;
+StartupNotify=true
+Keywords=KVM;VM;fingerprint;clone;

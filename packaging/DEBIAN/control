@@ -1,0 +1,22 @@
+Package: kvm-fpr
+Version: 1.0.0
+Section: utils
+Priority: optional
+Architecture: amd64
+Depends: libgtk-3-0 (>= 3.10), libvirt-clients, python3, sudo
+Recommends: libguestfs-tools
+Maintainer: 彭刚要 <pgy866@163.com>
+Homepage: http://www.yaoying.vip
+Description: KVM VM hardware fingerprint refresher (re-clone tool)
+ A graphical tool (C + NAppGUI, GPLv3 open-source license) that refreshes
+ an existing KVM virtual machine's hardware fingerprint like re-cloning:
+ it regenerates the domain UUID, all NIC MAC addresses, SMBIOS serials
+ and (optionally) the guest machine-id, giving the VM a brand-new
+ hardware fingerprint and machine code.
+ .
+ Features:
+  - List local libvirt domains
+  - One-click re-clone (new UUID/MAC/SMBIOS)
+  - Auto or force shutdown of running guests
+  - Optional guest machine-id reset (needs virt-customize)
+  - Automatic backup of the original XML configuration
