@@ -43,6 +43,18 @@ struct _app_t
     int vm_count;
     FprItem **items;
     int item_count;
+    GtkWidget *pop_tpl;
+    FprTemplate **tpls;
+    int tpl_count;
+    GtkWidget *chk_kvm;
+    GtkWidget *chk_hypervisor;
+    GtkWidget *chk_vmport;
+    GtkWidget *chk_hv_vendor;
+    GtkWidget *entry_hv_vendor;
+    char **bk_paths;
+    char **bk_times;
+    int bk_count;
+    int bk_vm_index;
 };
 
 /*---------------------------------------------------------------------------*/
@@ -239,12 +251,32 @@ static void i_OnApply(GtkButton *button, gpointer user_data)
     vm = app->vm_names[sel];
     pass = gtk_entry_get_text(GTK_ENTRY(app->entry_pass));
 
-    i_append_log(app, "======================================================");
-    i_append_log(app, ">> 开始应用新指纹：%s", vm);
-    rc = fpr_apply_items(pass, vm, app->items, app->item_count,
-                         gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(app->chk_force)),
-                         gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(app->chk_guest)),
-                         i_log_cb, app);
+    {
+        unsigned int avoid = 0;
+        const char *hv = NULL;
+        if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(app->chk_kvm)))
+            avoid |= FPR_AVOID_KVM_HIDDEN;
+        if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(app->chk_hypervisor)))
+            avoid |= FPR_AVOID_HYPERVISOR;
+        if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(app->chk_vmport)))
+            avoid |= FPR_AVOID_VMPORT;
+        if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(app->chk_hv_vendor)))
+        {
+            hv = gtk_entry_get_text(GTK_ENTRY(app->entry_hv_vendor));
+            if (hv == NULL || hv[0] == '\0')
+            {
+                i_append_log(app, "[错误] 已勾选 HyperV 厂商 ID，请填写厂商 ID（≤12 字符）");
+                return;
+            }
+            avoid |= FPR_AVOID_HYPERV_VENDOR;
+        }
+        i_append_log(app, "======================================================");
+        i_append_log(app, ">> 开始应用新指纹：%s", vm);
+        rc = fpr_apply_items_ext(pass, vm, app->items, app->item_count, avoid, hv,
+                                 gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(app->chk_force)),
+                                 gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(app->chk_guest)),
+                                 i_log_cb, app);
+    }
     if (rc == 0)
     {
         i_append_log(app, ">> 应用成功！");
@@ -254,6 +286,206 @@ static void i_OnApply(GtkButton *button, gpointer user_data)
     {
         i_append_log(app, ">> 应用失败，请查看上方错误信息");
     }
+}
+
+/*---------------------------------------------------------------------------*/
+
+/* 品牌模板选择 */
+static void i_OnTplChanged(GtkComboBox *combo, gpointer user_data)
+{
+    App *app = (App *)user_data;
+    int sel;
+    int i;
+    (void)combo;
+    sel = gtk_combo_box_get_active(GTK_COMBO_BOX(app->pop_tpl));
+    if (app->items == NULL || app->item_count <= 0)
+        return;
+    if (sel < 0 || sel >= app->tpl_count)
+        return;
+    fpr_apply_template(app->items, app->item_count, app->tpls[sel]);
+    for (i = 0; i < app->item_count; ++i)
+        gtk_entry_set_text(GTK_ENTRY(app->row_new[i]), app->items[i]->newval);
+    i_append_log(app, ">> 已应用品牌模板：%s", app->tpls[sel]->name);
+}
+
+/*---------------------------------------------------------------------------*/
+
+/* 备份历史对话框 */
+static void i_OnBackupRestore(GtkButton *button, gpointer user_data)
+{
+    App *app = (App *)user_data;
+    GtkWidget *dlg = (GtkWidget *)g_object_get_data(G_OBJECT(button), "bkdlg");
+    GtkComboBoxText *cb = GTK_COMBO_BOX_TEXT(g_object_get_data(G_OBJECT(dlg), "bkcombo"));
+    int sel = gtk_combo_box_get_active(GTK_COMBO_BOX(cb));
+    (void)button;
+    if (sel < 0 || sel >= app->bk_count)
+    {
+        i_append_log(app, "[错误] 请先选择一条备份");
+        return;
+    }
+    i_append_log(app, "======================================================");
+    if (fpr_restore_backup(gtk_entry_get_text(GTK_ENTRY(app->entry_pass)),
+                           app->vm_names[app->bk_vm_index],
+                           app->bk_paths[sel], i_log_cb, app) == 0)
+        i_append_log(app, ">> 恢复成功，可关闭对话框后重新加载指纹");
+}
+
+static void i_OnBackupDelete(GtkButton *button, gpointer user_data)
+{
+    App *app = (App *)user_data;
+    GtkWidget *dlg = (GtkWidget *)g_object_get_data(G_OBJECT(button), "bkdlg");
+    GtkComboBoxText *cb = GTK_COMBO_BOX_TEXT(g_object_get_data(G_OBJECT(dlg), "bkcombo"));
+    int sel = gtk_combo_box_get_active(GTK_COMBO_BOX(cb));
+    (void)button;
+    if (sel < 0 || sel >= app->bk_count)
+    {
+        i_append_log(app, "[错误] 请先选择一条备份");
+        return;
+    }
+    if (fpr_delete_backup(app->bk_paths[sel]) == 0)
+        i_append_log(app, ">> 已删除备份：%s", app->bk_times[sel]);
+    else
+        i_append_log(app, "[错误] 删除备份失败");
+}
+
+static void i_OnViewSave(GtkButton *button, gpointer user_data)
+{
+    App *app = (App *)user_data;
+    GtkWidget *dlg = (GtkWidget *)g_object_get_data(G_OBJECT(button), "vxdlg");
+    GtkTextView *view = GTK_TEXT_VIEW(g_object_get_data(G_OBJECT(dlg), "vxview"));
+    GtkTextBuffer *buf = gtk_text_view_get_buffer(view);
+    GtkTextIter s, e;
+    char *text;
+    int sel;
+    (void)button;
+    gtk_text_buffer_get_start_iter(buf, &s);
+    gtk_text_buffer_get_end_iter(buf, &e);
+    text = gtk_text_buffer_get_text(buf, &s, &e, FALSE);
+    sel = gtk_combo_box_get_active(GTK_COMBO_BOX(app->combo));
+    if (sel < 0 || sel >= app->vm_count)
+    {
+        g_free(text);
+        return;
+    }
+    i_append_log(app, "======================================================");
+    if (fpr_apply_xml(gtk_entry_get_text(GTK_ENTRY(app->entry_pass)),
+                      app->vm_names[sel], text, i_log_cb, app) == 0)
+        i_append_log(app, ">> 修改已应用，请重新加载指纹");
+    g_free(text);
+}
+
+/*---------------------------------------------------------------------------*/
+
+static void i_OnViewXml(GtkButton *button, gpointer user_data)
+{
+    App *app = (App *)user_data;
+    GtkWidget *dlg;
+    GtkWidget *content;
+    GtkWidget *sw;
+    GtkWidget *view;
+    GtkWidget *btn;
+    GtkTextBuffer *buf;
+    char *xml = NULL;
+    int sel;
+    (void)button;
+
+    sel = gtk_combo_box_get_active(GTK_COMBO_BOX(app->combo));
+    if (sel < 0 || sel >= app->vm_count)
+    {
+        i_append_log(app, "[错误] 请先选择虚拟机");
+        return;
+    }
+    if (fpr_dumpxml(gtk_entry_get_text(GTK_ENTRY(app->entry_pass)),
+                    app->vm_names[sel], &xml, i_log_cb, app) != 0)
+        return;
+
+    dlg = gtk_dialog_new_with_buttons("查看 / 编辑 XML 配置", GTK_WINDOW(app->window),
+                                      GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+                                      "关闭", GTK_RESPONSE_CLOSE, NULL);
+    gtk_window_set_default_size(GTK_WINDOW(dlg), 700, 560);
+    content = gtk_dialog_get_content_area(GTK_DIALOG(dlg));
+    sw = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(sw), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+    view = gtk_text_view_new();
+    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(view), GTK_WRAP_NONE);
+    buf = gtk_text_view_get_buffer(GTK_TEXT_VIEW(view));
+    gtk_text_buffer_set_text(buf, xml != NULL ? xml : "", -1);
+    g_free(xml);
+    gtk_container_add(GTK_CONTAINER(sw), view);
+    g_object_set_data(G_OBJECT(dlg), "vxview", view);
+    gtk_widget_set_size_request(sw, 660, 440);
+    gtk_container_add(GTK_CONTAINER(content), sw);
+
+    btn = gtk_button_new_with_label("保存并应用");
+    g_object_set_data(G_OBJECT(btn), "vxdlg", dlg);
+    g_signal_connect(btn, "clicked", G_CALLBACK(i_OnViewSave), app);
+    gtk_container_add(GTK_CONTAINER(content), btn);
+
+    gtk_widget_show_all(dlg);
+    gtk_dialog_run(GTK_DIALOG(dlg));
+    gtk_widget_destroy(dlg);
+}
+
+/*---------------------------------------------------------------------------*/
+
+static void i_OnBackups(GtkButton *button, gpointer user_data)
+{
+    App *app = (App *)user_data;
+    GtkWidget *dlg;
+    GtkWidget *content;
+    GtkWidget *vbox;
+    GtkWidget *combo;
+    GtkWidget *hbox;
+    GtkWidget *btn;
+    int sel;
+    int i;
+    (void)button;
+
+    sel = gtk_combo_box_get_active(GTK_COMBO_BOX(app->combo));
+    if (sel < 0 || sel >= app->vm_count)
+    {
+        i_append_log(app, "[错误] 请先选择虚拟机");
+        return;
+    }
+    if (app->bk_paths != NULL)
+    {
+        fpr_free_backups(app->bk_paths, app->bk_times, app->bk_count);
+        app->bk_paths = NULL;
+        app->bk_times = NULL;
+        app->bk_count = 0;
+    }
+    app->bk_vm_index = sel;
+    fpr_list_backups(app->vm_names[sel], &app->bk_paths, &app->bk_times, &app->bk_count);
+
+    dlg = gtk_dialog_new_with_buttons("备份历史", GTK_WINDOW(app->window),
+                                      GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+                                      "关闭", GTK_RESPONSE_CLOSE, NULL);
+    content = gtk_dialog_get_content_area(GTK_DIALOG(dlg));
+    vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    gtk_container_add(GTK_CONTAINER(content), vbox);
+
+    combo = gtk_combo_box_text_new();
+    for (i = 0; i < app->bk_count; ++i)
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(combo), app->bk_times[i]);
+    if (app->bk_count > 0)
+        gtk_combo_box_set_active(GTK_COMBO_BOX(combo), 0);
+    g_object_set_data(G_OBJECT(dlg), "bkcombo", combo);
+    gtk_box_pack_start(GTK_BOX(vbox), combo, FALSE, FALSE, 0);
+
+    hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    btn = gtk_button_new_with_label("恢复所选备份");
+    g_object_set_data(G_OBJECT(btn), "bkdlg", dlg);
+    g_signal_connect(btn, "clicked", G_CALLBACK(i_OnBackupRestore), app);
+    gtk_box_pack_start(GTK_BOX(hbox), btn, FALSE, FALSE, 0);
+    btn = gtk_button_new_with_label("删除所选备份");
+    g_object_set_data(G_OBJECT(btn), "bkdlg", dlg);
+    g_signal_connect(btn, "clicked", G_CALLBACK(i_OnBackupDelete), app);
+    gtk_box_pack_start(GTK_BOX(hbox), btn, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(vbox), hbox, FALSE, FALSE, 0);
+
+    gtk_widget_show_all(dlg);
+    gtk_dialog_run(GTK_DIALOG(dlg));
+    gtk_widget_destroy(dlg);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -324,7 +556,7 @@ static void i_OnAbout(GtkButton *button, gpointer user_data)
     img = gtk_image_new_from_pixbuf(pixbuf);
     gtk_box_pack_start(GTK_BOX(hbox), img, FALSE, FALSE, 0);
 
-    label = gtk_label_new("kvm-fpr v1.0.1\nKVM 硬件指纹刷新工具");
+    label = gtk_label_new("kvm-fpr v1.1.0\nKVM 硬件指纹刷新工具");
     gtk_box_pack_start(GTK_BOX(vbox), label, FALSE, FALSE, 0);
     label = gtk_label_new("版权：© 2026 彭刚要");
     gtk_box_pack_start(GTK_BOX(vbox), label, FALSE, FALSE, 0);
@@ -362,6 +594,10 @@ static void i_OnDestroy(GtkWidget *widget, gpointer user_data)
 {
     App *app = (App *)user_data;
     (void)widget;
+    if (app->bk_paths != NULL)
+        fpr_free_backups(app->bk_paths, app->bk_times, app->bk_count);
+    if (app->tpls != NULL)
+        fpr_free_templates(app->tpls, app->tpl_count);
     i_free_vms(app);
     i_free_items(app);
     gtk_main_quit();
@@ -384,7 +620,7 @@ int main(int argc, char **argv)
     app = g_malloc0(sizeof(App));
     app->window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(app->window), "KVM 硬件指纹刷新工具");
-    gtk_window_set_default_size(GTK_WINDOW(app->window), 720, 640);
+    gtk_window_set_default_size(GTK_WINDOW(app->window), 760, 780);
     gtk_window_set_position(GTK_WINDOW(app->window), GTK_WIN_POS_CENTER);
     g_signal_connect(app->window, "destroy", G_CALLBACK(i_OnDestroy), app);
 
@@ -430,7 +666,34 @@ int main(int argc, char **argv)
     gtk_grid_attach(GTK_GRID(grid), app->chk_guest, 1, 0, 1, 1);
     gtk_box_pack_start(GTK_BOX(vbox), grid, FALSE, FALSE, 0);
 
-    /* 按钮行：应用新指纹 | 重新随机 | 使用说明 | 关于 */
+    /* 品牌模板行 */
+    grid = gtk_grid_new();
+    gtk_grid_set_column_spacing(GTK_GRID(grid), 6);
+    gtk_grid_attach(GTK_GRID(grid), gtk_label_new("品牌模板："), 0, 0, 1, 1);
+    app->pop_tpl = gtk_combo_box_text_new();
+    g_signal_connect(app->pop_tpl, "changed", G_CALLBACK(i_OnTplChanged), app);
+    gtk_widget_set_hexpand(app->pop_tpl, TRUE);
+    gtk_grid_attach(GTK_GRID(grid), app->pop_tpl, 1, 0, 1, 1);
+    gtk_box_pack_start(GTK_BOX(vbox), grid, FALSE, FALSE, 0);
+
+    /* 防虚拟机检测行 */
+    grid = gtk_grid_new();
+    gtk_grid_set_column_spacing(GTK_GRID(grid), 6);
+    app->chk_kvm = gtk_check_button_new_with_label("隐藏 KVM 标志");
+    gtk_grid_attach(GTK_GRID(grid), app->chk_kvm, 0, 0, 1, 1);
+    app->chk_hypervisor = gtk_check_button_new_with_label("隐藏 hypervisor CPU 标志");
+    gtk_grid_attach(GTK_GRID(grid), app->chk_hypervisor, 1, 0, 1, 1);
+    app->chk_vmport = gtk_check_button_new_with_label("禁用 VMWare 端口");
+    gtk_grid_attach(GTK_GRID(grid), app->chk_vmport, 2, 0, 1, 1);
+    app->chk_hv_vendor = gtk_check_button_new_with_label("HyperV 厂商 ID");
+    gtk_grid_attach(GTK_GRID(grid), app->chk_hv_vendor, 3, 0, 1, 1);
+    app->entry_hv_vendor = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(app->entry_hv_vendor), "如 Microsofit（≤12 字符）");
+    gtk_widget_set_hexpand(app->entry_hv_vendor, TRUE);
+    gtk_grid_attach(GTK_GRID(grid), app->entry_hv_vendor, 4, 0, 1, 1);
+    gtk_box_pack_start(GTK_BOX(vbox), grid, FALSE, FALSE, 0);
+
+    /* 按钮行：应用新指纹 | 重新随机 | 备份历史 | 使用说明 | 关于 */
     grid = gtk_grid_new();
     gtk_grid_set_column_spacing(GTK_GRID(grid), 6);
     btn = gtk_button_new_with_label("应用新指纹");
@@ -439,12 +702,18 @@ int main(int argc, char **argv)
     btn = gtk_button_new_with_label("重新随机");
     g_signal_connect(btn, "clicked", G_CALLBACK(i_OnRegen), app);
     gtk_grid_attach(GTK_GRID(grid), btn, 1, 0, 1, 1);
+    btn = gtk_button_new_with_label("备份历史");
+    g_signal_connect(btn, "clicked", G_CALLBACK(i_OnBackups), app);
+    gtk_grid_attach(GTK_GRID(grid), btn, 2, 0, 1, 1);
+    btn = gtk_button_new_with_label("查看文件");
+    g_signal_connect(btn, "clicked", G_CALLBACK(i_OnViewXml), app);
+    gtk_grid_attach(GTK_GRID(grid), btn, 3, 0, 1, 1);
     btn = gtk_button_new_with_label("使用说明");
     g_signal_connect(btn, "clicked", G_CALLBACK(i_OnHelp), app);
-    gtk_grid_attach(GTK_GRID(grid), btn, 2, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), btn, 4, 0, 1, 1);
     btn = gtk_button_new_with_label("关于");
     g_signal_connect(btn, "clicked", G_CALLBACK(i_OnAbout), app);
-    gtk_grid_attach(GTK_GRID(grid), btn, 3, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), btn, 5, 0, 1, 1);
     gtk_box_pack_start(GTK_BOX(vbox), grid, FALSE, FALSE, 0);
 
     /* 指纹表格：表头 + 20 行 */
@@ -482,6 +751,13 @@ int main(int argc, char **argv)
     gtk_widget_set_hexpand(sw, TRUE);
     gtk_widget_set_vexpand(sw, TRUE);
     gtk_box_pack_start(GTK_BOX(vbox), sw, TRUE, TRUE, 0);
+
+    /* 填充品牌模板 */
+    fpr_list_templates(&app->tpls, &app->tpl_count);
+    for (i = 0; i < app->tpl_count; ++i)
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(app->pop_tpl), app->tpls[i]->name);
+    if (app->tpl_count > 0)
+        gtk_combo_box_set_active(GTK_COMBO_BOX(app->pop_tpl), 0);
 
     gtk_widget_show_all(app->window);
     gtk_main();

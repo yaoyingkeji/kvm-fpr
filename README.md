@@ -18,6 +18,10 @@
 | 智能关机 | 运行中的虚拟机可选择优雅关机（`virsh shutdown`）或强制关机（`virsh destroy`） |
 | 机器码重置 | 可选重置 guest 内部 `/etc/machine-id` 等机器码（需 `virt-customize`） |
 | 自动备份 | 刷新前自动备份原始 XML 到 `~/kvm-fpr-backups/`，可随时恢复 |
+| 备份历史 | 查看该虚拟机全部历史备份，一键恢复 / 删除 |
+| 查看文件 | 直接打开虚拟机 XML 配置进行编辑查看并保存应用 |
+| 品牌模板 | 联想/戴尔/惠普/华硕/宏碁/小米等品牌伪装，支持自定义模板 |
+| 防检测 | 隐藏 KVM/hypervisor 标志、禁用 vmport、HyperV 厂商 ID 注入 |
 | 保留自启 | 自动保留并恢复虚拟机的开机自启设置 |
 | UEFI 支持 | 含 UEFI nvram 的虚拟机自动重建 nvram |
 
@@ -27,27 +31,27 @@
 
 | 版本 | 特点 | 安装包 |
 |---|---|---|
-| NAppGUI 版 | 单文件、体积最小 | `kvm-fpr_1.0.1_amd64.deb` / `kvm-fpr-1.0.1-x86_64.AppImage` |
-| GTK3 版 | 依赖系统 GTK3 | `kvm-fpr-gtk_1.0.1_amd64.deb` / `kvm-fpr-gtk-1.0.1-x86_64.AppImage` |
-| Qt5 版 | 依赖系统 Qt5 | `kvm-fpr-qt_1.0.1_amd64.deb` / `kvm-fpr-qt-1.0.1-x86_64.AppImage` |
+| NAppGUI 版 | 单文件、体积最小 | `kvm-fpr_1.1.0_amd64.deb` / `kvm-fpr-1.1.0-x86_64.AppImage` |
+| GTK3 版 | 依赖系统 GTK3 | `kvm-fpr-gtk_1.1.0_amd64.deb` / `kvm-fpr-gtk-1.1.0-x86_64.AppImage` |
+| Qt5 版 | 依赖系统 Qt5 | `kvm-fpr-qt_1.1.0_amd64.deb` / `kvm-fpr-qt-1.1.0-x86_64.AppImage` |
 
 ### Debian / Deepin / Ubuntu（.deb）
 
 ```bash
-sudo dpkg -i kvm-fpr_1.0.1_amd64.deb        # NAppGUI 版
-sudo dpkg -i kvm-fpr-gtk_1.0.1_amd64.deb    # GTK3 版
-sudo dpkg -i kvm-fpr-qt_1.0.1_amd64.deb     # Qt5 版
+sudo dpkg -i kvm-fpr_1.1.0_amd64.deb        # NAppGUI 版
+sudo dpkg -i kvm-fpr-gtk_1.1.0_amd64.deb    # GTK3 版
+sudo dpkg -i kvm-fpr-qt_1.1.0_amd64.deb     # Qt5 版
 ```
 
 ### 任意发行版（.AppImage）
 
 ```bash
-chmod +x kvm-fpr-1.0.1-x86_64.AppImage      # NAppGUI 版
-./kvm-fpr-1.0.1-x86_64.AppImage
-chmod +x kvm-fpr-gtk-1.0.1-x86_64.AppImage  # GTK3 版
-./kvm-fpr-gtk-1.0.1-x86_64.AppImage
-chmod +x kvm-fpr-qt-1.0.1-x86_64.AppImage   # Qt5 版
-./kvm-fpr-qt-1.0.1-x86_64.AppImage
+chmod +x kvm-fpr-1.1.0-x86_64.AppImage      # NAppGUI 版
+./kvm-fpr-1.1.0-x86_64.AppImage
+chmod +x kvm-fpr-gtk-1.1.0-x86_64.AppImage  # GTK3 版
+./kvm-fpr-gtk-1.1.0-x86_64.AppImage
+chmod +x kvm-fpr-qt-1.1.0-x86_64.AppImage   # Qt5 版
+./kvm-fpr-qt-1.1.0-x86_64.AppImage
 ```
 
 ## 🚀 快速开始

@@ -15,7 +15,7 @@
 # ============================================================
 set -e
 
-VERSION="${1:-1.0.1}"
+VERSION="${1:-1.1.0}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="$ROOT/build/pkgs"
 ICON="$ROOT/packaging/kvm-fpr.png"

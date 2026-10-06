@@ -44,6 +44,23 @@ struct _app_t
     Edit *row_cur[20];         /* 当前值（只读） */
     Edit *row_new[20];         /* 新值（可编辑） */
     int max_rows;
+    /* 品牌模板 */
+    PopUp *pop_tpl;
+    FprTemplate **tpls;
+    int tpl_count;
+    /* 防虚拟机检测 */
+    Button *chk_kvm;
+    Button *chk_hypervisor;
+    Button *chk_vmport;
+    Button *chk_hv_vendor;
+    Edit *edit_hv_vendor;
+    /* 备份历史对话框状态 */
+    char **bk_paths;
+    char **bk_times;
+    int bk_count;
+    int bk_vm_index;
+    ListBox *bk_list;
+    Edit *xml_editor;   /* 查看文件对话框编辑器 */
 };
 
 static void i_OnHelp(App *app, Event *e); /* 前向声明 */
@@ -192,6 +209,259 @@ static void i_OnRegen(App *app, Event *e)
 
 /*---------------------------------------------------------------------------*/
 
+/* 品牌模板选择：应用模板到指纹表格（右列） */
+static void i_OnTplSelect(App *app, Event *e)
+{
+    int sel;
+    int i;
+    unref(e);
+    sel = (int)popup_get_selected(app->pop_tpl);
+    if (app->items == NULL || app->item_count <= 0)
+    {
+        i_log(app, "[提示] 请先选择虚拟机并加载指纹");
+        return;
+    }
+    if (sel < 0 || sel >= app->tpl_count)
+        return;
+    fpr_apply_template(app->items, app->item_count, app->tpls[sel]);
+    for (i = 0; i < app->item_count; ++i)
+        edit_text(app->row_new[i], app->items[i]->newval);
+    i_log(app, ">> 已应用品牌模板：%s（可继续手动修改右侧）", app->tpls[sel]->name);
+}
+
+/*---------------------------------------------------------------------------*/
+
+/* 备份历史对话框：恢复 / 删除 */
+static void i_OnBackupRestore(App *app, Event *e)
+{
+    int sel = -1;
+    int i;
+    const char *pass;
+    unref(e);
+    if (app->bk_list == NULL)
+        return;
+    for (i = 0; i < app->bk_count; ++i)
+    {
+        if (listbox_selected(app->bk_list, (uint32_t)i))
+        {
+            sel = i;
+            break;
+        }
+    }
+    if (sel < 0)
+    {
+        i_log(app, "[错误] 请先选择一条备份");
+        return;
+    }
+    pass = edit_get_text(app->edit_pass);
+    i_log(app, "======================================================");
+    if (fpr_restore_backup(pass, app->vm_names[app->bk_vm_index],
+                           app->bk_paths[sel], i_log_ctx, app) == 0)
+        i_log(app, ">> 恢复成功，可关闭对话框后重新加载指纹");
+}
+
+/*---------------------------------------------------------------------------*/
+
+static void i_OnBackupDelete(App *app, Event *e)
+{
+    int sel = -1;
+    int i;
+    unref(e);
+    if (app->bk_list == NULL)
+        return;
+    for (i = 0; i < app->bk_count; ++i)
+    {
+        if (listbox_selected(app->bk_list, (uint32_t)i))
+        {
+            sel = i;
+            break;
+        }
+    }
+    if (sel < 0)
+    {
+        i_log(app, "[错误] 请先选择一条备份");
+        return;
+    }
+    if (fpr_delete_backup(app->bk_paths[sel]) == 0)
+        i_log(app, ">> 已删除备份：%s", app->bk_times[sel]);
+    else
+        i_log(app, "[错误] 删除备份失败");
+}
+
+/*---------------------------------------------------------------------------*/
+
+static void i_OnBackupsClose(Window *window, Event *e)
+{
+    unref(e);
+    window_stop_modal(window, ekGUI_CLOSE_BUTTON);
+}
+
+/*---------------------------------------------------------------------------*/
+
+static void i_OnViewClose(Window *window, Event *e)
+{
+    unref(e);
+    window_stop_modal(window, ekGUI_CLOSE_BUTTON);
+}
+
+/*---------------------------------------------------------------------------*/
+
+static void i_OnViewSave(App *app, Event *e)
+{
+    int sel;
+    const char *pass;
+    unref(e);
+    sel = (int)popup_get_selected(app->pop_vm);
+    if (sel < 0 || sel >= app->vm_count)
+        return;
+    pass = edit_get_text(app->edit_pass);
+    i_log(app, "======================================================");
+    if (fpr_apply_xml(pass, app->vm_names[sel],
+                      edit_get_text(app->xml_editor), i_log_ctx, app) == 0)
+        i_log(app, ">> 修改已应用，请重新加载指纹");
+    else
+        i_log(app, ">> 应用失败，请查看上方错误信息");
+}
+
+/*---------------------------------------------------------------------------*/
+
+static void i_OnViewXml(App *app, Event *e)
+{
+    Window *dlg;
+    Panel *panel;
+    Layout *layout;
+    Edit *editor;
+    Button *btn_save;
+    Button *btn_close;
+    int sel;
+    char *xml = NULL;
+
+    unref(e);
+    sel = (int)popup_get_selected(app->pop_vm);
+    if (sel < 0 || sel >= app->vm_count)
+    {
+        i_log(app, "[错误] 请先选择虚拟机");
+        return;
+    }
+    if (fpr_dumpxml(edit_get_text(app->edit_pass), app->vm_names[sel],
+                    &xml, i_log_ctx, app) != 0)
+        return;
+
+    dlg = window_create(ekWINDOW_TITLE | ekWINDOW_CLOSE);
+    panel = panel_create();
+    layout = layout_create(1, 3);
+    editor = edit_multiline();
+    edit_text(editor, xml != NULL ? xml : "");
+    free(xml);
+    app->xml_editor = editor;
+    btn_save = button_push();
+    button_text(btn_save, "保存并应用");
+    button_OnClick(btn_save, listener(app, i_OnViewSave, App));
+    btn_close = button_push();
+    button_text(btn_close, "关闭");
+    button_OnClick(btn_close, listener(dlg, i_OnViewClose, Window));
+
+    layout_edit(layout, editor, 0, 0);
+    layout_button(layout, btn_save, 0, 1);
+    layout_button(layout, btn_close, 0, 2);
+    layout_halign(layout, 0, 1, ekLEFT);
+    layout_halign(layout, 0, 2, ekRIGHT);
+    layout_vsize(layout, 0, 460);
+    layout_hexpand(layout, 0);
+    layout_margin(layout, 8);
+    layout_vmargin(layout, 0, 8);
+    layout_vmargin(layout, 1, 4);
+
+    panel_layout(panel, layout);
+    window_panel(dlg, panel);
+    window_title(dlg, "查看 / 编辑 XML 配置");
+    window_client_size(dlg, s2df(680, 540));
+    window_origin(dlg, v2df(200, 120));
+    window_modal(dlg, app->window);
+    window_destroy(&dlg);
+    app->xml_editor = NULL;
+}
+
+/*---------------------------------------------------------------------------*/
+
+static void i_OnBackups(App *app, Event *e)
+{
+    Window *dlg;
+    Panel *panel;
+    Layout *layout;
+    Label *tip;
+    ListBox *list;
+    Button *btn_restore;
+    Button *btn_delete;
+    Button *btn_close;
+    int sel;
+    int i;
+
+    unref(e);
+    sel = (int)popup_get_selected(app->pop_vm);
+    if (sel < 0 || sel >= app->vm_count)
+    {
+        i_log(app, "[错误] 请先选择虚拟机");
+        return;
+    }
+    /* 释放上一次对话框的备份列表 */
+    if (app->bk_paths != NULL)
+    {
+        fpr_free_backups(app->bk_paths, app->bk_times, app->bk_count);
+        app->bk_paths = NULL;
+        app->bk_times = NULL;
+        app->bk_count = 0;
+    }
+    app->bk_vm_index = sel;
+    fpr_list_backups(app->vm_names[sel], &app->bk_paths, &app->bk_times, &app->bk_count);
+
+    dlg = window_create(ekWINDOW_TITLE | ekWINDOW_CLOSE);
+    panel = panel_create();
+    layout = layout_create(1, 4);
+    list = listbox_create();
+    app->bk_list = list;
+    tip = label_create();
+    label_text(tip, "选择备份后点「恢复」即可回滚到该时间点（原配置自动备份到 ~/kvm-fpr-backups/）");
+    listbox_size(list, s2df(460, 160));
+    for (i = 0; i < app->bk_count; ++i)
+        listbox_add_elem(list, app->bk_times[i], NULL);
+    if (app->bk_count > 0)
+        listbox_select(list, 0, TRUE);
+    btn_restore = button_push();
+    button_text(btn_restore, "恢复所选备份");
+    button_OnClick(btn_restore, listener(app, i_OnBackupRestore, App));
+    btn_delete = button_push();
+    button_text(btn_delete, "删除所选备份");
+    button_OnClick(btn_delete, listener(app, i_OnBackupDelete, App));
+    btn_close = button_push();
+    button_text(btn_close, "关闭");
+    button_OnClick(btn_close, listener(dlg, i_OnBackupsClose, Window));
+
+    layout_label(layout, tip, 0, 0);
+    layout_listbox(layout, list, 0, 1);
+    layout_button(layout, btn_restore, 0, 2);
+    layout_button(layout, btn_delete, 0, 3);
+    layout_button(layout, btn_close, 0, 4);
+    layout_halign(layout, 0, 2, ekLEFT);
+    layout_halign(layout, 0, 3, ekLEFT);
+    layout_halign(layout, 0, 4, ekRIGHT);
+    layout_margin(layout, 10);
+    layout_vmargin(layout, 0, 8);
+    layout_vmargin(layout, 1, 8);
+    layout_vmargin(layout, 2, 4);
+    layout_vmargin(layout, 3, 4);
+
+    panel_layout(panel, layout);
+    window_panel(dlg, panel);
+    window_title(dlg, "备份历史");
+    window_origin(dlg, v2df(240, 160));
+    window_modal(dlg, app->window);
+    window_destroy(&dlg);
+    app->bk_list = NULL;
+}
+
+/*---------------------------------------------------------------------------*/
+
 /* 应用（可手动修改过的）新指纹 */
 static void i_OnApply(App *app, Event *e)
 {
@@ -230,12 +500,35 @@ static void i_OnApply(App *app, Event *e)
     vm = app->vm_names[sel];
     pass = edit_get_text(app->edit_pass);
 
-    i_log(app, "======================================================");
-    i_log(app, ">> 开始应用新指纹：%s", vm);
-    rc = fpr_apply_items(pass, vm, app->items, app->item_count,
-                         button_get_state(app->chk_force) == ekGUI_ON,
-                         button_get_state(app->chk_guest) == ekGUI_ON,
-                         i_log_ctx, app);
+    /* 收集防虚拟机检测选项 */
+    {
+        unsigned int avoid = 0;
+        const char *hv = NULL;
+        if (button_get_state(app->chk_kvm) == ekGUI_ON)
+            avoid |= FPR_AVOID_KVM_HIDDEN;
+        if (button_get_state(app->chk_hypervisor) == ekGUI_ON)
+            avoid |= FPR_AVOID_HYPERVISOR;
+        if (button_get_state(app->chk_vmport) == ekGUI_ON)
+            avoid |= FPR_AVOID_VMPORT;
+        if (button_get_state(app->chk_hv_vendor) == ekGUI_ON)
+        {
+            hv = edit_get_text(app->edit_hv_vendor);
+            if (hv == NULL || hv[0] == '\0')
+            {
+                i_log(app, "[错误] 已勾选 HyperV 厂商 ID，请填写厂商 ID（≤12 字符）");
+                return;
+            }
+            avoid |= FPR_AVOID_HYPERV_VENDOR;
+        }
+
+        i_log(app, "======================================================");
+        i_log(app, ">> 开始应用新指纹：%s", vm);
+        rc = fpr_apply_items_ext(pass, vm, app->items, app->item_count,
+                                 avoid, hv,
+                                 button_get_state(app->chk_force) == ekGUI_ON,
+                                 button_get_state(app->chk_guest) == ekGUI_ON,
+                                 i_log_ctx, app);
+    }
     if (rc == 0)
     {
         i_log(app, ">> 应用成功！如需继续可再次「重新随机」后应用");
@@ -393,7 +686,7 @@ static void i_OnAbout(App *app, Event *e)
         imageview_image(icon, img);
 
     title = label_create();
-    label_text(title, "kvm-fpr v1.0.1\nKVM 硬件指纹刷新工具");
+    label_text(title, "kvm-fpr v1.1.0\nKVM 硬件指纹刷新工具");
     copyright = label_create();
     label_text(copyright, "版权：© 2026 彭刚要");
     mail1 = label_create();
@@ -462,7 +755,7 @@ static Panel *i_panel(App *app)
 {
     Panel *panel = panel_create();
     Layout *root = layout_create(1, 3);
-    Layout *top = layout_create(4, 4);
+    Layout *top = layout_create(6, 7);
     Label *l1 = label_create();
     Label *l2 = label_create();
     int i;
@@ -504,31 +797,74 @@ static Panel *i_panel(App *app)
     layout_button(top, app->chk_force, 0, 2);
     layout_button(top, app->chk_guest, 1, 2);
 
-    /* 按钮行：应用新指纹 | 重新随机 | 使用说明 | 关于 */
+    /* 品牌模板行 */
+    {
+        Label *l3 = label_create();
+        label_text(l3, "品牌模板：");
+        app->pop_tpl = popup_create();
+        popup_list_height(app->pop_tpl, 10);
+        popup_OnSelect(app->pop_tpl, listener(app, i_OnTplSelect, App));
+        layout_label(top, l3, 0, 3);
+        layout_popup(top, app->pop_tpl, 1, 3);
+        layout_halign(top, 0, 3, ekLEFT);
+    }
+
+    /* 防虚拟机检测行 */
+    {
+        app->chk_kvm = button_check();
+        button_text(app->chk_kvm, "隐藏 KVM 标志");
+        app->chk_hypervisor = button_check();
+        button_text(app->chk_hypervisor, "隐藏 hypervisor CPU 标志");
+        app->chk_vmport = button_check();
+        button_text(app->chk_vmport, "禁用 VMWare 端口");
+        app->chk_hv_vendor = button_check();
+        button_text(app->chk_hv_vendor, "HyperV 厂商 ID");
+        app->edit_hv_vendor = edit_create();
+        edit_phtext(app->edit_hv_vendor, "如 Microsofit（≤12 字符）");
+        layout_button(top, app->chk_kvm, 0, 4);
+        layout_button(top, app->chk_hypervisor, 1, 4);
+        layout_button(top, app->chk_vmport, 2, 4);
+        layout_button(top, app->chk_hv_vendor, 3, 4);
+        layout_edit(top, app->edit_hv_vendor, 4, 4);
+    }
+
+    /* 按钮行：应用新指纹 | 重新随机 | 备份历史 | 使用说明 | 关于 */
     app->btn_go = button_push();
     button_text(app->btn_go, "应用新指纹");
     button_OnClick(app->btn_go, listener(app, i_OnApply, App));
-    layout_button(top, app->btn_go, 0, 3);
-    layout_halign(top, 0, 3, ekLEFT);
+    layout_button(top, app->btn_go, 0, 5);
+    layout_halign(top, 0, 5, ekLEFT);
 
     {
         Button *btn_regen = button_push();
         button_text(btn_regen, "重新随机");
         button_OnClick(btn_regen, listener(app, i_OnRegen, App));
-        layout_button(top, btn_regen, 1, 3);
-        layout_halign(top, 1, 3, ekLEFT);
+        layout_button(top, btn_regen, 1, 5);
+        layout_halign(top, 1, 5, ekLEFT);
+
+        Button *btn_backups = button_push();
+        button_text(btn_backups, "备份历史");
+        button_OnClick(btn_backups, listener(app, i_OnBackups, App));
+        layout_button(top, btn_backups, 2, 5);
+        layout_halign(top, 2, 5, ekLEFT);
+
+        Button *btn_view = button_push();
+        button_text(btn_view, "查看文件");
+        button_OnClick(btn_view, listener(app, i_OnViewXml, App));
+        layout_button(top, btn_view, 3, 5);
+        layout_halign(top, 3, 5, ekLEFT);
 
         Button *btn_help = button_push();
         button_text(btn_help, "使用说明");
         button_OnClick(btn_help, listener(app, i_OnHelp, App));
-        layout_button(top, btn_help, 2, 3);
-        layout_halign(top, 2, 3, ekLEFT);
+        layout_button(top, btn_help, 4, 5);
+        layout_halign(top, 4, 5, ekLEFT);
 
         Button *btn_about = button_push();
         button_text(btn_about, "关于");
         button_OnClick(btn_about, listener(app, i_OnAbout, App));
-        layout_button(top, btn_about, 3, 3);
-        layout_halign(top, 3, 3, ekLEFT);
+        layout_button(top, btn_about, 5, 5);
+        layout_halign(top, 5, 5, ekLEFT);
     }
 
     /* 指纹表格：表头 + 条目行 */
@@ -576,7 +912,9 @@ static Panel *i_panel(App *app)
     layout_vsize(top, 0, 34);
     layout_vsize(top, 1, 34);
     layout_vsize(top, 2, 34);
-    layout_vsize(top, 3, 38);
+    layout_vsize(top, 3, 34);
+    layout_vsize(top, 4, 34);
+    layout_vsize(top, 5, 38);
     layout_hmargin(top, 0, 4);
     layout_hmargin(top, 1, 4);
     layout_hsize(top, 1, 220);
@@ -592,13 +930,19 @@ static App *i_create(void)
 {
     App *app = heap_new0(App);
     Panel *panel = i_panel(app);
+    int i;
     app->window = window_create(ekWINDOW_STDRES);
     window_panel(app->window, panel);
     window_title(app->window, "KVM 硬件指纹刷新工具");
-    window_client_size(app->window, s2df(700, 620));
-    window_origin(app->window, v2df(200, 120));
+    window_client_size(app->window, s2df(740, 820));
+    window_origin(app->window, v2df(180, 60));
     window_OnClose(app->window, listener(app, i_OnClose, App));
     window_show(app->window);
+
+    /* 填充品牌模板下拉（内置 + 用户自定义） */
+    fpr_list_templates(&app->tpls, &app->tpl_count);
+    for (i = 0; i < app->tpl_count; ++i)
+        popup_add_elem(app->pop_tpl, app->tpls[i]->name, NULL);
     return app;
 }
 
@@ -608,6 +952,10 @@ static void i_destroy(App **app)
 {
     if ((*app)->items != NULL)
         fpr_free_items((*app)->items, (*app)->item_count);
+    if ((*app)->bk_paths != NULL)
+        fpr_free_backups((*app)->bk_paths, (*app)->bk_times, (*app)->bk_count);
+    if ((*app)->tpls != NULL)
+        fpr_free_templates((*app)->tpls, (*app)->tpl_count);
     i_free_vms(*app);
     window_destroy(&(*app)->window);
     heap_delete(app, App);
