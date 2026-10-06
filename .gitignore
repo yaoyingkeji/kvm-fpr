@@ -4,6 +4,18 @@ build/
 *.AppImage
 appimagetool
 
+# GTK 版产物
+gtk/kvm-fpr-gtk
+
+# Qt 版产物（qmake 生成）
+qt/kvm-fpr-qt
+qt/Makefile
+qt/*.o
+qt/*.moc
+qt/moc_*
+qt/moc_predefs.h
+qt/.qmake.stash
+
 # 系统与编辑器
 *.swp
 *~

@@ -23,19 +23,31 @@
 
 ## 📦 下载安装
 
-提供两种安装包（见 [Releases](../../releases)）：
+提供 **三种 GUI 实现**，功能一致（见 [Releases](../../releases)）：
+
+| 版本 | 特点 | 安装包 |
+|---|---|---|
+| NAppGUI 版 | 单文件、体积最小 | `kvm-fpr_1.0.0_amd64.deb` / `kvm-fpr-1.0.0-x86_64.AppImage` |
+| GTK3 版 | 依赖系统 GTK3 | `kvm-fpr-gtk_1.0.0_amd64.deb` / `kvm-fpr-gtk-1.0.0-x86_64.AppImage` |
+| Qt5 版 | 依赖系统 Qt5 | `kvm-fpr-qt_1.0.0_amd64.deb` / `kvm-fpr-qt-1.0.0-x86_64.AppImage` |
 
 ### Debian / Deepin / Ubuntu（.deb）
 
 ```bash
-sudo dpkg -i kvm-fpr_1.0.0_amd64.deb
+sudo dpkg -i kvm-fpr_1.0.0_amd64.deb        # NAppGUI 版
+sudo dpkg -i kvm-fpr-gtk_1.0.0_amd64.deb    # GTK3 版
+sudo dpkg -i kvm-fpr-qt_1.0.0_amd64.deb     # Qt5 版
 ```
 
 ### 任意发行版（.AppImage）
 
 ```bash
-chmod +x kvm-fpr-1.0.0-x86_64.AppImage
+chmod +x kvm-fpr-1.0.0-x86_64.AppImage      # NAppGUI 版
 ./kvm-fpr-1.0.0-x86_64.AppImage
+chmod +x kvm-fpr-gtk-1.0.0-x86_64.AppImage  # GTK3 版
+./kvm-fpr-gtk-1.0.0-x86_64.AppImage
+chmod +x kvm-fpr-qt-1.0.0-x86_64.AppImage   # Qt5 版
+./kvm-fpr-qt-1.0.0-x86_64.AppImage
 ```
 
 ## 🚀 快速开始
@@ -56,10 +68,12 @@ chmod +x kvm-fpr-1.0.0-x86_64.AppImage
 
 ## 🛠 从源码构建
 
-详见 [技术说明 · 构建与打包](docs/技术说明.md)，或直接使用一键构建脚本：
+详见 [技术说明 · 构建与打包](docs/技术说明.md)。本项目提供三个 GUI 实现，共用同一后端：
 
 ```bash
-./build.sh          # 自动获取 NAppGUI SDK、编译、生成 .deb 与 .AppImage
+./build.sh          # NAppGUI 版：编译、生成 .deb 与 .AppImage
+gtk/build_gtk.sh    # GTK3 版：编译 kvm-fpr-gtk
+qt/build_qt.sh      # Qt5 版：编译 kvm-fpr-qt
 ```
 
 ## 📄 许可证
