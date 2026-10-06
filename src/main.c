@@ -36,9 +36,18 @@ struct _app_t
     TextView *log;
     char **vm_names;
     int vm_count;
+    /* 硬件指纹条目 */
+    FprItem **items;
+    int item_count;
+    Layout *tbl;               /* 指纹表格布局 */
+    Label *row_name[20];       /* 条目名 */
+    Edit *row_cur[20];         /* 当前值（只读） */
+    Edit *row_new[20];         /* 新值（可编辑） */
+    int max_rows;
 };
 
 static void i_OnHelp(App *app, Event *e); /* 前向声明 */
+static void i_load_items(App *app);      /* 前向声明 */
 
 /*---------------------------------------------------------------------------*/
 
@@ -108,16 +117,89 @@ static void i_OnList(App *app, Event *e)
         popup_add_elem(app->pop_vm, app->vm_names[i], NULL);
     popup_selected(app->pop_vm, 0);
     i_log(app, ">> 共找到 %d 台虚拟机", count);
+    i_load_items(app);
 }
 
 /*---------------------------------------------------------------------------*/
 
-static void i_OnRefresh(App *app, Event *e)
+/* 选择虚拟机时加载其指纹 */
+static void i_OnSelect(App *app, Event *e)
+{
+    unref(e);
+    i_load_items(app);
+}
+
+/*---------------------------------------------------------------------------*/
+
+/* 加载选中虚拟机的当前指纹与自动生成的新指纹到表格 */
+static void i_load_items(App *app)
+{
+    int sel;
+    int i;
+
+    sel = (int)popup_get_selected(app->pop_vm);
+    if (sel < 0 || sel >= app->vm_count)
+        return;
+
+    if (app->items != NULL)
+    {
+        fpr_free_items(app->items, app->item_count);
+        app->items = NULL;
+        app->item_count = 0;
+    }
+
+    i_log(app, ">> 正在读取虚拟机 %s 的硬件指纹 ...", app->vm_names[sel]);
+    if (fpr_get_items(edit_get_text(app->edit_pass), app->vm_names[sel],
+                      &app->items, &app->item_count, i_log_ctx, app) != 0)
+        return;
+
+    /* 填充表格 */
+    for (i = 0; i < app->max_rows; ++i)
+    {
+        if (i < app->item_count && app->items[i] != NULL)
+        {
+            label_text(app->row_name[i], app->items[i]->name);
+            edit_text(app->row_cur[i], app->items[i]->current);
+            edit_text(app->row_new[i], app->items[i]->newval);
+            layout_show_row(app->tbl, i + 1, TRUE);
+        }
+        else
+        {
+            layout_show_row(app->tbl, i + 1, FALSE);
+        }
+    }
+    i_log(app, ">> 已生成 %d 项硬件指纹（右侧可手动修改）", app->item_count);
+    window_update(app->window);
+}
+
+/*---------------------------------------------------------------------------*/
+
+/* 重新随机生成新指纹（右侧列） */
+static void i_OnRegen(App *app, Event *e)
+{
+    int i;
+    unref(e);
+    if (app->items == NULL || app->item_count <= 0)
+    {
+        i_log(app, "[提示] 请先选择虚拟机并加载指纹");
+        return;
+    }
+    fpr_regen_values(app->items, app->item_count);
+    for (i = 0; i < app->item_count; ++i)
+        edit_text(app->row_new[i], app->items[i]->newval);
+    i_log(app, ">> 已重新随机生成 %d 项新指纹", app->item_count);
+}
+
+/*---------------------------------------------------------------------------*/
+
+/* 应用（可手动修改过的）新指纹 */
+static void i_OnApply(App *app, Event *e)
 {
     const char *pass;
     const char *vm;
     int sel;
     int rc;
+    int i;
 
     unref(e);
     sel = (int)popup_get_selected(app->pop_vm);
@@ -126,19 +208,43 @@ static void i_OnRefresh(App *app, Event *e)
         i_log(app, "[错误] 请先选择一台虚拟机");
         return;
     }
+    if (app->items == NULL || app->item_count <= 0)
+    {
+        i_log(app, "[错误] 请先点击「刷新列表」加载指纹");
+        return;
+    }
+
+    /* 收集右侧编辑框内容为新值 */
+    for (i = 0; i < app->item_count; ++i)
+    {
+        const char *txt = edit_get_text(app->row_new[i]);
+        if (txt == NULL || txt[0] == '\0')
+        {
+            i_log(app, "[错误] 第 %d 项新值为空，请填写或点击「重新随机」", i + 1);
+            return;
+        }
+        free(app->items[i]->newval);
+        app->items[i]->newval = strdup(txt);
+    }
+
     vm = app->vm_names[sel];
     pass = edit_get_text(app->edit_pass);
 
     i_log(app, "======================================================");
-    i_log(app, ">> 开始刷新虚拟机：%s", vm);
-    rc = fpr_refresh(pass, vm,
-                     button_get_state(app->chk_force) == ekGUI_ON,
-                     button_get_state(app->chk_guest) == ekGUI_ON,
-                     i_log_ctx, app);
+    i_log(app, ">> 开始应用新指纹：%s", vm);
+    rc = fpr_apply_items(pass, vm, app->items, app->item_count,
+                         button_get_state(app->chk_force) == ekGUI_ON,
+                         button_get_state(app->chk_guest) == ekGUI_ON,
+                         i_log_ctx, app);
     if (rc == 0)
-        i_log(app, ">> 刷新流程结束（成功）");
+    {
+        i_log(app, ">> 应用成功！如需继续可再次「重新随机」后应用");
+        i_load_items(app); /* 刷新为当前新值 */
+    }
     else
-        i_log(app, ">> 刷新流程结束（失败，请查看上方错误信息）");
+    {
+        i_log(app, ">> 应用失败，请查看上方错误信息");
+    }
 }
 
 /*---------------------------------------------------------------------------*/
@@ -287,7 +393,7 @@ static void i_OnAbout(App *app, Event *e)
         imageview_image(icon, img);
 
     title = label_create();
-    label_text(title, "kvm-fpr v1.0.0\nKVM 硬件指纹刷新工具");
+    label_text(title, "kvm-fpr v1.0.1\nKVM 硬件指纹刷新工具");
     copyright = label_create();
     label_text(copyright, "版权：© 2026 彭刚要");
     mail1 = label_create();
@@ -355,15 +461,19 @@ static void i_OnAbout(App *app, Event *e)
 static Panel *i_panel(App *app)
 {
     Panel *panel = panel_create();
-    Layout *root = layout_create(1, 2);
-    Layout *top = layout_create(3, 4);
+    Layout *root = layout_create(1, 3);
+    Layout *top = layout_create(4, 4);
     Label *l1 = label_create();
     Label *l2 = label_create();
+    int i;
+
+    app->max_rows = 20;
 
     /* 虚拟机选择行 */
     label_text(l1, "虚拟机：");
     app->pop_vm = popup_create();
     popup_list_height(app->pop_vm, 12);
+    popup_OnSelect(app->pop_vm, listener(app, i_OnSelect, App));
     app->btn_list = button_push();
     button_text(app->btn_list, "刷新列表");
     button_OnClick(app->btn_list, listener(app, i_OnList, App));
@@ -382,7 +492,7 @@ static Panel *i_panel(App *app)
 
     layout_label(top, l2, 0, 1);
     layout_edit(top, app->edit_pass, 1, 1);
-    layout_label(top, app->lbl_state, 2, 1);
+    layout_label(top, app->lbl_state, 3, 1);
 
     /* 选项行 */
     app->chk_force = button_check();
@@ -394,40 +504,79 @@ static Panel *i_panel(App *app)
     layout_button(top, app->chk_force, 0, 2);
     layout_button(top, app->chk_guest, 1, 2);
 
-    /* 主操作按钮 + 使用说明 + 关于（并排） */
+    /* 按钮行：应用新指纹 | 重新随机 | 使用说明 | 关于 */
     app->btn_go = button_push();
-    button_text(app->btn_go, "刷新硬件指纹 / 机器码");
-    button_OnClick(app->btn_go, listener(app, i_OnRefresh, App));
-
+    button_text(app->btn_go, "应用新指纹");
+    button_OnClick(app->btn_go, listener(app, i_OnApply, App));
     layout_button(top, app->btn_go, 0, 3);
     layout_halign(top, 0, 3, ekLEFT);
 
     {
+        Button *btn_regen = button_push();
+        button_text(btn_regen, "重新随机");
+        button_OnClick(btn_regen, listener(app, i_OnRegen, App));
+        layout_button(top, btn_regen, 1, 3);
+        layout_halign(top, 1, 3, ekLEFT);
+
         Button *btn_help = button_push();
         button_text(btn_help, "使用说明");
         button_OnClick(btn_help, listener(app, i_OnHelp, App));
-        layout_button(top, btn_help, 1, 3);
-        layout_halign(top, 1, 3, ekLEFT);
+        layout_button(top, btn_help, 2, 3);
+        layout_halign(top, 2, 3, ekLEFT);
 
         Button *btn_about = button_push();
         button_text(btn_about, "关于");
         button_OnClick(btn_about, listener(app, i_OnAbout, App));
-        layout_button(top, btn_about, 2, 3);
-        layout_halign(top, 2, 3, ekLEFT);
+        layout_button(top, btn_about, 3, 3);
+        layout_halign(top, 3, 3, ekLEFT);
+    }
+
+    /* 指纹表格：表头 + 条目行 */
+    {
+        Panel *tpanel = panel_create();
+        Label *h1 = label_create();
+        Label *h2 = label_create();
+        Label *h3 = label_create();
+        app->tbl = layout_create(3, app->max_rows + 1);
+
+        label_text(h1, "硬件指纹项");
+        label_text(h2, "当前值（只读）");
+        label_text(h3, "新值（自动随机生成，可手动修改）");
+        layout_label(app->tbl, h1, 0, 0);
+        layout_label(app->tbl, h2, 1, 0);
+        layout_label(app->tbl, h3, 2, 0);
+        layout_vsize(app->tbl, 0, 30);
+
+        for (i = 0; i < app->max_rows; ++i)
+        {
+            app->row_name[i] = label_create();
+            app->row_cur[i] = edit_create();
+            edit_editable(app->row_cur[i], FALSE);
+            app->row_new[i] = edit_create();
+            layout_label(app->tbl, app->row_name[i], 0, i + 1);
+            layout_edit(app->tbl, app->row_cur[i], 1, i + 1);
+            layout_edit(app->tbl, app->row_new[i], 2, i + 1);
+            layout_vsize(app->tbl, i + 1, 34);
+            layout_show_row(app->tbl, i + 1, FALSE);
+        }
+        layout_margin(app->tbl, 2);
+        panel_layout(tpanel, app->tbl);
+        layout_panel(root, tpanel, 0, 1);
     }
 
     /* 日志区 */
     app->log = textview_create();
 
     layout_layout(root, top, 0, 0);
-    layout_textview(root, app->log, 0, 1);
-    layout_vexpand(root, 1);
+    layout_textview(root, app->log, 0, 2);
     layout_margin(root, 6);
     layout_vmargin(root, 0, 6);
-    layout_vsize(top, 0, 26);
-    layout_vsize(top, 1, 26);
-    layout_vsize(top, 2, 26);
-    layout_vsize(top, 3, 34);
+    layout_vmargin(root, 1, 6);
+    layout_vexpand(root, 2);
+    layout_vsize(top, 0, 34);
+    layout_vsize(top, 1, 34);
+    layout_vsize(top, 2, 34);
+    layout_vsize(top, 3, 38);
     layout_hmargin(top, 0, 4);
     layout_hmargin(top, 1, 4);
     layout_hsize(top, 1, 220);
@@ -446,7 +595,7 @@ static App *i_create(void)
     app->window = window_create(ekWINDOW_STDRES);
     window_panel(app->window, panel);
     window_title(app->window, "KVM 硬件指纹刷新工具");
-    window_client_size(app->window, s2df(640, 420));
+    window_client_size(app->window, s2df(700, 620));
     window_origin(app->window, v2df(200, 120));
     window_OnClose(app->window, listener(app, i_OnClose, App));
     window_show(app->window);
@@ -457,6 +606,8 @@ static App *i_create(void)
 
 static void i_destroy(App **app)
 {
+    if ((*app)->items != NULL)
+        fpr_free_items((*app)->items, (*app)->item_count);
     i_free_vms(*app);
     window_destroy(&(*app)->window);
     heap_delete(app, App);

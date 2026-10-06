@@ -15,7 +15,7 @@
 # ============================================================
 set -e
 
-VERSION="${1:-1.0.0}"
+VERSION="${1:-1.0.1}"
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 WORK="$ROOT/build"
 NAPPGUI="$WORK/nappgui"

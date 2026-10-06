@@ -251,48 +251,315 @@ void fpr_free_names(char **names, int count)
     free(names);
 }
 
+/* 日志回调辅助（前向声明，定义见后） */
+static void i_logf(FprLogFn log, void *ctx, const char *fmt, ...);
+
+/*---------------------------------------------------------------------------*/
+
+/* 随机数：优先 /dev/urandom，失败则回退 rand() */
+static void i_rand_bytes(unsigned char *buf, size_t n)
+{
+    FILE *f = fopen("/dev/urandom", "rb");
+    if (f != NULL)
+    {
+        if (fread(buf, 1, n, f) == n)
+        {
+            fclose(f);
+            return;
+        }
+        fclose(f);
+    }
+    {
+        static int seeded = 0;
+        size_t i;
+        if (!seeded)
+        {
+            srand((unsigned int)(time(NULL) ^ getpid()));
+            seeded = 1;
+        }
+        for (i = 0; i < n; ++i)
+            buf[i] = (unsigned char)(rand() & 0xFF);
+    }
+}
+
+/* 生成全新 UUID（8-4-4-4-12，RFC4122 v4） */
+static void i_gen_uuid(char *out, size_t size)
+{
+    unsigned char b[16];
+    i_rand_bytes(b, sizeof(b));
+    b[6] = (unsigned char)((b[6] & 0x0F) | 0x40);
+    b[8] = (unsigned char)((b[8] & 0x3F) | 0x80);
+    snprintf(out, size,
+             "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+             b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
+             b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]);
+}
+
+/* 生成全新 MAC（保留 KVM 厂商前缀 52:54） */
+static void i_gen_mac(char *out, size_t size)
+{
+    unsigned char b[4];
+    i_rand_bytes(b, sizeof(b));
+    snprintf(out, size, "52:54:%02x:%02x:%02x:%02x", b[0], b[1], b[2], b[3]);
+}
+
+/* 生成全新序列号（n 位随机十六进制） */
+static void i_gen_serial(char *out, size_t size, int n)
+{
+    unsigned char *b;
+    int i;
+    if (n <= 0 || n > 64)
+        n = 16;
+    b = (unsigned char *)malloc((size_t)n);
+    i_rand_bytes(b, (size_t)n);
+    for (i = 0; i < n; ++i)
+        snprintf(out + i * 2, size - (size_t)(i * 2), "%02x", b[i]);
+    free(b);
+}
+
+/*---------------------------------------------------------------------------*/
+
+/* 在 xml 中查找第 nth 个 open..close 之间的内容（malloc，调用方释放） */
+static char *i_between(const char *xml, const char *open, const char *close, int nth)
+{
+    const char *p = xml;
+    int k = 0;
+    while (p != NULL && (p = strstr(p, open)) != NULL)
+    {
+        if (k == nth)
+        {
+            const char *q = strstr(p + strlen(open), close);
+            if (q != NULL)
+            {
+                size_t n = (size_t)(q - (p + strlen(open)));
+                char *s = (char *)malloc(n + 1);
+                memcpy(s, p + strlen(open), n);
+                s[n] = '\0';
+                return s;
+            }
+            return NULL;
+        }
+        k++;
+        p += strlen(open);
+    }
+    return NULL;
+}
+
+/*---------------------------------------------------------------------------*/
+
+void fpr_free_items(FprItem **items, int count)
+{
+    int i;
+    if (items == NULL)
+        return;
+    for (i = 0; i < count; ++i)
+    {
+        if (items[i] != NULL)
+        {
+            if (items[i]->name != NULL)
+                free(items[i]->name);
+            if (items[i]->current != NULL)
+                free(items[i]->current);
+            if (items[i]->newval != NULL)
+                free(items[i]->newval);
+            free(items[i]);
+        }
+    }
+    free(items);
+}
+
+/*---------------------------------------------------------------------------*/
+
+static void i_add_item(FprItem ***items, int *count, int *cap,
+                       FprType type, const char *name,
+                       const char *current, const char *newval)
+{
+    FprItem *elem;
+    if (*count >= *cap)
+    {
+        *cap = (*cap == 0) ? 8 : *cap * 2;
+        *items = (FprItem **)realloc(*items, sizeof(FprItem *) * (size_t)*cap);
+    }
+    elem = (FprItem *)malloc(sizeof(FprItem));
+    elem->type = type;
+    elem->name = strdup(name);
+    elem->current = strdup(current != NULL ? current : "");
+    elem->newval = strdup(newval != NULL ? newval : "");
+    (*items)[*count] = elem;
+    *count += 1;
+}
+
+/*---------------------------------------------------------------------------*/
+
+void fpr_regen_values(FprItem **items, int count)
+{
+    int i;
+    char tmp[64];
+    if (items == NULL)
+        return;
+    for (i = 0; i < count; ++i)
+    {
+        if (items[i] == NULL)
+            continue;
+        switch (items[i]->type)
+        {
+        case FPR_TYPE_UUID:
+        case FPR_TYPE_SYSTEM_UUID:
+        case FPR_TYPE_PRODUCT_UUID:
+            i_gen_uuid(tmp, sizeof(tmp));
+            break;
+        case FPR_TYPE_MAC:
+            i_gen_mac(tmp, sizeof(tmp));
+            break;
+        case FPR_TYPE_SERIAL:
+        case FPR_TYPE_PRODUCT_SERIAL:
+            i_gen_serial(tmp, sizeof(tmp), 16);
+            break;
+        default:
+            continue;
+        }
+        free(items[i]->newval);
+        items[i]->newval = strdup(tmp);
+    }
+}
+
+/*---------------------------------------------------------------------------*/
+
+int fpr_get_items(const char *sudo_pass, const char *vm,
+                  FprItem ***items, int *count,
+                  FprLogFn log, void *ctx)
+{
+    RunResult r;
+    char buf[1024];
+    char tmp[64];
+    FprItem **arr = NULL;
+    int n = 0;
+    int cap = 0;
+    int i;
+
+    *items = NULL;
+    *count = 0;
+
+    snprintf(buf, sizeof(buf), "virsh dumpxml %s", vm);
+    r = i_run_sudo(sudo_pass, buf);
+    if (!i_run_ok(&r) || r.out == NULL)
+    {
+        i_logf(log, ctx, "[错误] 无法获取虚拟机 %s 的配置：%s", vm, r.out ? r.out : "?");
+        i_run_free(&r);
+        return -1;
+    }
+
+    /* 域 UUID */
+    {
+        char *cur = i_between(r.out, "<uuid>", "</uuid>", 0);
+        if (cur != NULL && cur[0] != '\0')
+        {
+            i_gen_uuid(tmp, sizeof(tmp));
+            i_add_item(&arr, &n, &cap, FPR_TYPE_UUID, "域 UUID", cur, tmp);
+        }
+        free(cur);
+    }
+
+    /* 各网卡 MAC */
+    for (i = 0;; ++i)
+    {
+        char *cur = i_between(r.out, "<mac address='", "'/>", i);
+        if (cur == NULL)
+            break;
+        if (cur[0] != '\0')
+        {
+            char nm[64];
+            snprintf(nm, sizeof(nm), "网卡 %d MAC", i + 1);
+            i_gen_mac(tmp, sizeof(tmp));
+            i_add_item(&arr, &n, &cap, FPR_TYPE_MAC, nm, cur, tmp);
+        }
+        free(cur);
+    }
+
+    /* SMBIOS serial（<serial> 无属性形式，位于 sysinfo 段） */
+    {
+        char *cur = i_between(r.out, "<entry name='serial'>", "</entry>", 0);
+        if (cur != NULL && cur[0] != '\0')
+        {
+            i_gen_serial(tmp, sizeof(tmp), 16);
+            i_add_item(&arr, &n, &cap, FPR_TYPE_SERIAL, "SMBIOS serial", cur, tmp);
+        }
+        free(cur);
+    }
+
+    /* SMBIOS system-uuid */
+    {
+        char *cur = i_between(r.out, "<entry name='system-uuid'>", "</entry>", 0);
+        if (cur != NULL && cur[0] != '\0')
+        {
+            i_gen_uuid(tmp, sizeof(tmp));
+            i_add_item(&arr, &n, &cap, FPR_TYPE_SYSTEM_UUID, "SMBIOS system-uuid", cur, tmp);
+        }
+        free(cur);
+    }
+
+    /* SMBIOS product-uuid */
+    {
+        char *cur = i_between(r.out, "<entry name='product-uuid'>", "</entry>", 0);
+        if (cur != NULL && cur[0] != '\0')
+        {
+            i_gen_uuid(tmp, sizeof(tmp));
+            i_add_item(&arr, &n, &cap, FPR_TYPE_PRODUCT_UUID, "SMBIOS product-uuid", cur, tmp);
+        }
+        free(cur);
+    }
+
+    /* SMBIOS product-serial */
+    {
+        char *cur = i_between(r.out, "<entry name='product-serial'>", "</entry>", 0);
+        if (cur != NULL && cur[0] != '\0')
+        {
+            i_gen_serial(tmp, sizeof(tmp), 16);
+            i_add_item(&arr, &n, &cap, FPR_TYPE_PRODUCT_SERIAL, "SMBIOS product-serial", cur, tmp);
+        }
+        free(cur);
+    }
+
+    i_run_free(&r);
+    *items = arr;
+    *count = n;
+    return 0;
+}
+
 /*---------------------------------------------------------------------------*/
 
 /* 内嵌的 python 指纹生成脚本（生成新 UUID/MAC/SMBIOS） */
 static const char *kCloneScript =
     "#!/usr/bin/env python3\n"
-    "import sys, re, uuid, random\n"
-    "src = sys.argv[1]\n"
+    "import sys, re\n"
+    "orig = sys.argv[1]\n"
     "dst = sys.argv[2]\n"
-    "xml = open(src, encoding='utf-8').read()\n"
-    "new_uuid = str(uuid.uuid4())\n"
-    "def new_mac():\n"
-    "    return '52:54:' + ':'.join('%02x' % random.randrange(256) for _ in range(4))\n"
-    "def rand_serial(n):\n"
-    "    return ''.join(random.choice('0123456789ABCDEF') for _ in range(n))\n"
-    "xml, nsub = re.subn(r'<uuid>[^<]*</uuid>', lambda m: '<uuid>' + new_uuid + '</uuid>', xml, count=1)\n"
-    "old_macs = re.findall(r\"<mac address='([^']*)'/>\", xml)\n"
-    "new_macs = []\n"
-    "def mac_repl(m):\n"
-    "    nm = new_mac()\n"
-    "    new_macs.append(nm)\n"
-    "    return \"<mac address='%s'/>\" % nm\n"
-    "xml = re.sub(r\"<mac address='[^']*'/>\", mac_repl, xml)\n"
-    "def repl_sysinfo(m):\n"
-    "    s = m.group(0)\n"
-    "    s = re.sub(r'<serial>[^<]*</serial>', lambda mm: '<serial>' + rand_serial(24) + '</serial>', s)\n"
-    "    s = re.sub(r\"<entry name='uuid'>[^<]*</entry>\", lambda mm: \"<entry name='uuid'>\" + str(uuid.uuid4()) + \"</entry>\", s)\n"
-    "    s = re.sub(r\"<entry name='system-uuid'>[^<]*</entry>\", lambda mm: \"<entry name='system-uuid'>\" + str(uuid.uuid4()) + \"</entry>\", s)\n"
-    "    s = re.sub(r\"<entry name='product-uuid'>[^<]*</entry>\", lambda mm: \"<entry name='product-uuid'>\" + str(uuid.uuid4()) + \"</entry>\", s)\n"
-    "    s = re.sub(r\"<entry name='product-serial'>[^<]*</entry>\", lambda mm: \"<entry name='product-serial'>\" + rand_serial(24) + \"</entry>\", s)\n"
-    "    s = re.sub(r\"<entry name='serial'>[^<]*</entry>\", lambda mm: \"<entry name='serial'>\" + rand_serial(24) + \"</entry>\", s)\n"
-    "    return s\n"
-    "xml = re.sub(r'<sysinfo[^>]*>.*?</sysinfo>', repl_sysinfo, xml, flags=re.S)\n"
+    "mapfile = sys.argv[3]\n"
+    "xml = open(orig, encoding='utf-8').read()\n"
+    "rules = []\n"
+    "for line in open(mapfile, encoding='utf-8'):\n"
+    "    line = line.rstrip('\\n')\n"
+    "    if '\\t' in line:\n"
+    "        t, v = line.split('\\t', 1)\n"
+    "        rules.append((t, v))\n"
+    "for t, v in rules:\n"
+    "    if t == 'uuid':\n"
+    "        xml = re.sub(r'<uuid>[^<]*</uuid>', lambda m: '<uuid>' + v + '</uuid>', xml, count=1)\n"
+    "macs = [v for t, v in rules if t.startswith('mac')]\n"
+    "if macs:\n"
+    "    it = iter(macs)\n"
+    "    xml = re.sub(r\"<mac address='[^']*'/>\", lambda m: \"<mac address='%s'/>\" % next(it), xml)\n"
+    "for t, v in rules:\n"
+    "    if t == 'serial':\n"
+    "        xml = re.sub(r\"<entry name='serial'>[^<]*</entry>\", lambda m: \"<entry name='serial'>\" + v + \"</entry>\", xml, count=1)\n"
+    "    elif t == 'systemuuid':\n"
+    "        xml = re.sub(r\"<entry name='system-uuid'>[^<]*</entry>\", lambda m: \"<entry name='system-uuid'>\" + v + \"</entry>\", xml, count=1)\n"
+    "    elif t == 'productuuid':\n"
+    "        xml = re.sub(r\"<entry name='product-uuid'>[^<]*</entry>\", lambda m: \"<entry name='product-uuid'>\" + v + \"</entry>\", xml, count=1)\n"
+    "    elif t == 'productserial':\n"
+    "        xml = re.sub(r\"<entry name='product-serial'>[^<]*</entry>\", lambda m: \"<entry name='product-serial'>\" + v + \"</entry>\", xml, count=1)\n"
     "open(dst, 'w', encoding='utf-8').write(xml)\n"
-    "print('UUID=' + new_uuid)\n"
-    "i = 0\n"
-    "for m in new_macs:\n"
-    "    print('MAC%d=%s' % (i, m))\n"
-    "    i += 1\n"
-    "i = 0\n"
-    "for m in old_macs:\n"
-    "    print('OLDMAC%d=%s' % (i, m))\n"
-    "    i += 1\n";
+    "print('OK')\n";
 
 /*---------------------------------------------------------------------------*/
 
@@ -392,12 +659,13 @@ static void i_logf(FprLogFn log, void *ctx, const char *fmt, ...)
 
 /*---------------------------------------------------------------------------*/
 
-int fpr_refresh(const char *sudo_pass, const char *vm,
-                int force_off, int reset_guest,
-                FprLogFn log, void *ctx)
+int fpr_apply_items(const char *sudo_pass, const char *vm,
+                    FprItem **items, int count,
+                    int force_off, int reset_guest,
+                    FprLogFn log, void *ctx)
 {
     char buf[2048];
-    char orig[512], newxml[512], script[512];
+    char orig[512], newxml[512], script[512], mapfile[512];
     char backup[1024], backup_dir[512];
     char ts[64];
     time_t now;
@@ -413,7 +681,8 @@ int fpr_refresh(const char *sudo_pass, const char *vm,
     lt = localtime(&now);
     strftime(ts, sizeof(ts), "%Y%m%d_%H%M%S", lt);
 
-    snprintf(script, sizeof(script), "/tmp/kvmfpr_clone.py");
+    snprintf(script, sizeof(script), "/tmp/kvmfpr_apply.py");
+    snprintf(mapfile, sizeof(mapfile), "/tmp/kvmfpr_%s_%s.map", vm, ts);
 
     /* 1. 检查虚拟机状态 */
     snprintf(buf, sizeof(buf), "virsh domstate %s", vm);
@@ -526,37 +795,67 @@ int fpr_refresh(const char *sudo_pass, const char *vm,
     if (autostart)
         i_logf(log, ctx, ">> 检测到开机自启已开启，刷新后将恢复");
 
-    /* 5. 运行指纹生成脚本生成全新指纹 */
+    /* 5. 生成替换映射并运行应用脚本 */
     if (i_write_script(script) != 0)
     {
-        i_logf(log, ctx, "[错误] 无法写入指纹生成脚本");
+        i_logf(log, ctx, "[错误] 无法写入应用脚本");
         return -1;
     }
-    snprintf(buf, sizeof(buf), "python3 %s %s %s", script, orig, newxml);
+    {
+        FILE *f = fopen(mapfile, "w");
+        int mac_idx = 0;
+        if (f == NULL)
+        {
+            i_logf(log, ctx, "[错误] 无法写入映射文件 %s", mapfile);
+            return -1;
+        }
+        for (i = 0; i < count; ++i)
+        {
+            if (items[i]->newval == NULL || items[i]->newval[0] == '\0')
+                continue;
+            switch (items[i]->type)
+            {
+            case FPR_TYPE_UUID:
+                fprintf(f, "uuid\t%s\n", items[i]->newval);
+                break;
+            case FPR_TYPE_MAC:
+                fprintf(f, "mac%d\t%s\n", mac_idx++, items[i]->newval);
+                break;
+            case FPR_TYPE_SERIAL:
+                fprintf(f, "serial\t%s\n", items[i]->newval);
+                break;
+            case FPR_TYPE_SYSTEM_UUID:
+                fprintf(f, "systemuuid\t%s\n", items[i]->newval);
+                break;
+            case FPR_TYPE_PRODUCT_UUID:
+                fprintf(f, "productuuid\t%s\n", items[i]->newval);
+                break;
+            case FPR_TYPE_PRODUCT_SERIAL:
+                fprintf(f, "productserial\t%s\n", items[i]->newval);
+                break;
+            default:
+                break;
+            }
+        }
+        fclose(f);
+    }
+    snprintf(buf, sizeof(buf), "python3 %s %s %s %s", script, orig, newxml, mapfile);
     r = i_run_sudo(sudo_pass, buf);
     if (!i_run_ok(&r))
     {
-        i_logf(log, ctx, "[错误] 指纹生成脚本执行失败：%s", r.out ? r.out : "?");
+        i_logf(log, ctx, "[错误] 应用脚本执行失败：%s", r.out ? r.out : "?");
         i_run_free(&r);
         return -1;
     }
-    if (r.out != NULL)
-    {
-        char *save = NULL;
-        char *tok = strtok_r(r.out, "\n", &save);
-        while (tok != NULL)
-        {
-            i_trim(tok);
-            if (strncmp(tok, "OLDMAC", 6) == 0)
-                i_logf(log, ctx, "   旧 MAC：%s", tok + 8);
-            else if (strncmp(tok, "MAC", 3) == 0)
-                i_logf(log, ctx, "   新 MAC：%s", tok + 5);
-            else if (strncmp(tok, "UUID=", 5) == 0)
-                i_logf(log, ctx, "   新 UUID：%s", tok + 5);
-            tok = strtok_r(NULL, "\n", &save);
-        }
-    }
     i_run_free(&r);
+
+    /* 打印新旧指纹对比 */
+    i_logf(log, ctx, ">> 新指纹清单：");
+    for (i = 0; i < count; ++i)
+    {
+        const char *nv = items[i]->newval != NULL ? items[i]->newval : "";
+        i_logf(log, ctx, "    %s：%s", items[i]->name, nv);
+    }
     i_logf(log, ctx, ">> 新配置已生成：%s", newxml);
 
     /* 6. 解除旧定义并加载新定义 */
@@ -648,10 +947,26 @@ int fpr_refresh(const char *sudo_pass, const char *vm,
 
     i_logf(log, ctx, "======================================================");
     i_logf(log, ctx, "[完成] 虚拟机 %s 硬件指纹已刷新：", vm);
-    i_logf(log, ctx, "  - 新 UUID / 新 MAC / 新 SMBIOS 序列号");
     i_logf(log, ctx, "  - 备份文件：%s", backup);
     if (has_nvram)
         i_logf(log, ctx, "  - 注意：该虚拟机含 UEFI nvram，已随之重建");
     rc = 0;
+    return rc;
+}
+
+/*---------------------------------------------------------------------------*/
+
+int fpr_refresh(const char *sudo_pass, const char *vm,
+                int force_off, int reset_guest,
+                FprLogFn log, void *ctx)
+{
+    FprItem **items = NULL;
+    int count = 0;
+    int rc;
+
+    if (fpr_get_items(sudo_pass, vm, &items, &count, log, ctx) != 0)
+        return -1;
+    rc = fpr_apply_items(sudo_pass, vm, items, count, force_off, reset_guest, log, ctx);
+    fpr_free_items(items, count);
     return rc;
 }

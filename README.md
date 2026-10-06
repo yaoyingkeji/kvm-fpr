@@ -27,27 +27,27 @@
 
 | 版本 | 特点 | 安装包 |
 |---|---|---|
-| NAppGUI 版 | 单文件、体积最小 | `kvm-fpr_1.0.0_amd64.deb` / `kvm-fpr-1.0.0-x86_64.AppImage` |
-| GTK3 版 | 依赖系统 GTK3 | `kvm-fpr-gtk_1.0.0_amd64.deb` / `kvm-fpr-gtk-1.0.0-x86_64.AppImage` |
-| Qt5 版 | 依赖系统 Qt5 | `kvm-fpr-qt_1.0.0_amd64.deb` / `kvm-fpr-qt-1.0.0-x86_64.AppImage` |
+| NAppGUI 版 | 单文件、体积最小 | `kvm-fpr_1.0.1_amd64.deb` / `kvm-fpr-1.0.1-x86_64.AppImage` |
+| GTK3 版 | 依赖系统 GTK3 | `kvm-fpr-gtk_1.0.1_amd64.deb` / `kvm-fpr-gtk-1.0.1-x86_64.AppImage` |
+| Qt5 版 | 依赖系统 Qt5 | `kvm-fpr-qt_1.0.1_amd64.deb` / `kvm-fpr-qt-1.0.1-x86_64.AppImage` |
 
 ### Debian / Deepin / Ubuntu（.deb）
 
 ```bash
-sudo dpkg -i kvm-fpr_1.0.0_amd64.deb        # NAppGUI 版
-sudo dpkg -i kvm-fpr-gtk_1.0.0_amd64.deb    # GTK3 版
-sudo dpkg -i kvm-fpr-qt_1.0.0_amd64.deb     # Qt5 版
+sudo dpkg -i kvm-fpr_1.0.1_amd64.deb        # NAppGUI 版
+sudo dpkg -i kvm-fpr-gtk_1.0.1_amd64.deb    # GTK3 版
+sudo dpkg -i kvm-fpr-qt_1.0.1_amd64.deb     # Qt5 版
 ```
 
 ### 任意发行版（.AppImage）
 
 ```bash
-chmod +x kvm-fpr-1.0.0-x86_64.AppImage      # NAppGUI 版
-./kvm-fpr-1.0.0-x86_64.AppImage
-chmod +x kvm-fpr-gtk-1.0.0-x86_64.AppImage  # GTK3 版
-./kvm-fpr-gtk-1.0.0-x86_64.AppImage
-chmod +x kvm-fpr-qt-1.0.0-x86_64.AppImage   # Qt5 版
-./kvm-fpr-qt-1.0.0-x86_64.AppImage
+chmod +x kvm-fpr-1.0.1-x86_64.AppImage      # NAppGUI 版
+./kvm-fpr-1.0.1-x86_64.AppImage
+chmod +x kvm-fpr-gtk-1.0.1-x86_64.AppImage  # GTK3 版
+./kvm-fpr-gtk-1.0.1-x86_64.AppImage
+chmod +x kvm-fpr-qt-1.0.1-x86_64.AppImage   # Qt5 版
+./kvm-fpr-qt-1.0.1-x86_64.AppImage
 ```
 
 ## 🚀 快速开始
