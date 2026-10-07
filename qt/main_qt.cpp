@@ -16,6 +16,8 @@
 
 #include <QApplication>
 #include <QWidget>
+#include <QMenuBar>
+#include <QMenu>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -28,6 +30,11 @@
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QPlainTextEdit>
+#include <QDir>
+#include <QFile>
+#include <QDesktopServices>
+#include <QUrl>
+#include <QApplication>
 #include <QHeaderView>
 #include <QDialog>
 #include <QPixmap>
@@ -38,6 +45,7 @@
 #include <cstring>
 
 #include "fpr.h"
+#include "theme.h"
 #include "icon_data.h"
 
 /*---------------------------------------------------------------------------*/
@@ -56,6 +64,7 @@ private slots:
     void onApply();
     void onComboChanged(int index);
     void onTplChanged(int index);
+    void onThemeChanged(int index);
     void onBackups();
     void onViewXml();
     void onHelp();
@@ -87,6 +96,10 @@ private:
     char **m_bkTimes;
     int m_bkCount;
     int m_bkVmIndex;
+    QComboBox *m_theme;
+    FprTheme **m_themes;
+    int m_themeCount;
+    QString m_xmlPath;
 };
 
 /*---------------------------------------------------------------------------*/
@@ -102,7 +115,8 @@ static void logCallback(void *ctx, const char *msg)
 MainWindow::MainWindow(QWidget *parent)
     : QWidget(parent), m_names(nullptr), m_count(0),
       m_items(nullptr), m_itemCount(0), m_tpls(nullptr), m_tplCount(0),
-      m_bkPaths(nullptr), m_bkTimes(nullptr), m_bkCount(0), m_bkVmIndex(0)
+      m_bkPaths(nullptr), m_bkTimes(nullptr), m_bkCount(0), m_bkVmIndex(0),
+      m_themes(nullptr), m_themeCount(0)
 {
     setWindowTitle(QStringLiteral("KVM 硬件指纹刷新工具"));
     resize(740, 640);
@@ -110,6 +124,15 @@ MainWindow::MainWindow(QWidget *parent)
     QVBoxLayout *root = new QVBoxLayout(this);
     root->setContentsMargins(8, 8, 8, 8);
     root->setSpacing(6);
+
+    /* 菜单栏（Deepin DDE 风格） */
+    QMenuBar *menubar = new QMenuBar;
+    QMenu *mFile = menubar->addMenu(QStringLiteral("文件"));
+    mFile->addAction(QStringLiteral("退出"), qApp, &QApplication::quit);
+    QMenu *mHelp = menubar->addMenu(QStringLiteral("帮助"));
+    mHelp->addAction(QStringLiteral("使用说明"), this, &MainWindow::onHelp);
+    mHelp->addAction(QStringLiteral("关于"), this, &MainWindow::onAbout);
+    root->addWidget(menubar, 0);
 
     /* 虚拟机行 */
     QGridLayout *grid = new QGridLayout;
@@ -149,6 +172,14 @@ MainWindow::MainWindow(QWidget *parent)
     grid->addWidget(new QLabel(QStringLiteral("品牌模板：")), 0, 0);
     m_tpl = new QComboBox;
     grid->addWidget(m_tpl, 0, 1);
+    root->addLayout(grid);
+
+    /* 主题行（跟随系统 / 内置皮肤 / 用户自建） */
+    grid = new QGridLayout;
+    grid->setColumnStretch(1, 1);
+    grid->addWidget(new QLabel(QStringLiteral("主题：")), 0, 0);
+    m_theme = new QComboBox;
+    grid->addWidget(m_theme, 0, 1);
     root->addLayout(grid);
 
     /* 防虚拟机检测行 */
@@ -216,6 +247,14 @@ MainWindow::MainWindow(QWidget *parent)
     fpr_list_templates(&m_tpls, &m_tplCount);
     for (int i = 0; i < m_tplCount; ++i)
         m_tpl->addItem(QString::fromUtf8(m_tpls[i]->name));
+
+    /* 填充主题 */
+    theme_load_all(&m_themes, &m_themeCount);
+    for (int i = 0; i < m_themeCount; ++i)
+        m_theme->addItem(QString::fromUtf8(m_themes[i]->name));
+    connect(m_theme, static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onThemeChanged);
+    onThemeChanged(0);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -291,6 +330,86 @@ void MainWindow::onTplChanged(int index)
             item->setText(QString::fromUtf8(m_items[i]->newval));
     }
     appendLog(">> 已应用品牌模板：%s", m_tpls[index]->name);
+}
+
+/*---------------------------------------------------------------------------*/
+
+static QString hexDarken(const char *hex, double factor)
+{
+    unsigned r = 0, g = 0, b = 0;
+    if (hex != nullptr && hex[0] == '#' && strlen(hex) >= 7)
+        sscanf(hex + 1, "%2x%2x%2x", &r, &g, &b);
+    r = (unsigned)(r * factor);
+    g = (unsigned)(g * factor);
+    b = (unsigned)(b * factor);
+    return QString("#%1%2%3").arg(r, 2, 16, QChar('0'))
+                             .arg(g, 2, 16, QChar('0'))
+                             .arg(b, 2, 16, QChar('0'));
+}
+
+/*---------------------------------------------------------------------------*/
+
+static QString hexToRgba(const char *hex, int alpha)
+{
+    unsigned r = 0, g = 0, b = 0;
+    if (hex != nullptr && hex[0] == '#' && strlen(hex) >= 7)
+        sscanf(hex + 1, "%2x%2x%2x", &r, &g, &b);
+    return QStringLiteral("rgba(%1,%2,%3,%4)").arg(r).arg(g).arg(b).arg(alpha);
+}
+
+void MainWindow::onThemeChanged(int index)
+{
+    if (index < 0 || index >= m_themeCount)
+        return;
+    const FprTheme *t = m_themes[index];
+    const FprTheme *use = t;
+    if (QString::fromUtf8(t->name) == QString::fromUtf8(theme_system_name()))
+    {
+        /* 跟随系统：亮/暗 */
+        bool dark = theme_detect_dark() == 1;
+        for (int i = 0; i < m_themeCount; ++i)
+        {
+            if (QString::fromUtf8(m_themes[i]->name) ==
+                QString::fromUtf8(dark ? "暗夜黑" : "星云蓝"))
+            {
+                use = m_themes[i];
+                break;
+            }
+        }
+        appendLog(">> 主题：跟随系统（%s）", dark ? "暗色" : "亮色");
+    }
+    else
+    {
+        appendLog(">> 已应用主题：%s", t->name);
+    }
+    if (use == nullptr)
+        return;
+    QString accentS = QString::fromUtf8(use->accent);
+    QString focus = hexToRgba(use->accent, 160);
+    QString accentDark = hexDarken(use->accent, 0.72);
+    QString css = QStringLiteral(
+        "QWidget { background-color: %1; color: %2; }\n"
+        "QLineEdit, QTextEdit, QTableWidget { background-color: %3; color: %4; border-radius: 7px; padding: 4px 8px; border: 1px solid %8; }\n"
+        "QLineEdit:focus { border: 1px solid %5; }\n"
+        "QPushButton { background-color: %5; color: %6; border-radius: 8px; padding: 6px 14px; border: none; font-weight: 500; }\n"
+        "QPushButton:hover { border: 1px solid %6; }\n"
+        "QPushButton:pressed { background-color: %9; }\n"
+        "QHeaderView::section { background-color: %8; color: %2; border: none; padding: 4px; }\n"
+        "QComboBox { background-color: %3; color: %4; border-radius: 7px; padding: 4px 8px; border: 1px solid %8; }\n"
+        "QComboBox QAbstractItemView { background-color: %3; color: %4; }\n"
+        "QComboBox QAbstractItemView::item:selected { background-color: %5; color: %6; }\n"
+        "QCheckBox { color: %2; spacing: 6px; }\n"
+        "QTableWidget { gridline-color: %8; }\n"
+        "QMenuBar { background-color: %1; color: %2; }\n"
+        "QMenuBar::item:selected { background-color: %5; color: %6; border-radius: 5px; }\n"
+        "QMenu { background-color: %3; color: %4; border-radius: 8px; }\n"
+        "QMenu::item:selected { background-color: %5; color: %6; }\n");
+    css = css.arg(QString::fromUtf8(use->bg), QString::fromUtf8(use->fg),
+             QString::fromUtf8(use->input_bg), QString::fromUtf8(use->input_fg),
+             accentS, QString::fromUtf8(use->accent_fg),
+             QString::fromUtf8(use->header_bg), QString::fromUtf8(use->header_bg),
+             accentDark);
+    qApp->setStyleSheet(css);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -491,6 +610,13 @@ void MainWindow::onViewXml()
         appendLog("[错误] 请先选择虚拟机");
         return;
     }
+    const char *home = getenv("HOME");
+    if (home == nullptr)
+        home = "/tmp";
+    QDir().mkpath(QString::fromUtf8(home) + QStringLiteral("/.cache/kvm-fpr"));
+    m_xmlPath = QString::fromUtf8(home) + QStringLiteral("/.cache/kvm-fpr/") +
+                QString::fromUtf8(m_names[sel]) + QStringLiteral(".xml");
+
     char *xml = nullptr;
     if (fpr_dumpxml(m_pass->text().toUtf8().constData(), m_names[sel],
                     &xml, logCallback, this) != 0)
@@ -502,11 +628,14 @@ void MainWindow::onViewXml()
     QVBoxLayout *v = new QVBoxLayout(&dlg);
     QPlainTextEdit *editor = new QPlainTextEdit;
     editor->setPlainText(QString::fromUtf8(xml != nullptr ? xml : ""));
+    editor->setReadOnly(true);
     free(xml);
     editor->setLineWrapMode(QPlainTextEdit::NoWrap);
     v->addWidget(editor);
 
     QHBoxLayout *hb = new QHBoxLayout;
+    QPushButton *btnOpen = new QPushButton(QStringLiteral("用系统编辑器打开"));
+    hb->addWidget(btnOpen);
     QPushButton *btnSave = new QPushButton(QStringLiteral("保存并应用"));
     hb->addWidget(btnSave);
     QPushButton *btnClose = new QPushButton(QStringLiteral("关闭"));
@@ -514,8 +643,23 @@ void MainWindow::onViewXml()
     hb->addWidget(btnClose, 0, Qt::AlignRight);
     v->addLayout(hb);
 
-    connect(btnSave, &QPushButton::clicked, [this, editor, sel]() {
-        QByteArray ba = editor->toPlainText().toUtf8();
+    connect(btnOpen, &QPushButton::clicked, [this, sel]() {
+        if (fpr_export_xml(m_pass->text().toUtf8().constData(), m_names[sel],
+                           m_xmlPath.toUtf8().constData(), logCallback, this) != 0)
+            return;
+        appendLog(">> XML 已导出：%s，正在用系统文本编辑器打开 ...", m_xmlPath.toUtf8().constData());
+        QDesktopServices::openUrl(QUrl::fromLocalFile(m_xmlPath));
+        appendLog(">> 请在系统编辑器中修改并保存，然后点击「保存并应用」");
+    });
+    connect(btnSave, &QPushButton::clicked, [this, sel]() {
+        QFile f(m_xmlPath);
+        if (!f.open(QIODevice::ReadOnly))
+        {
+            appendLog("[错误] 请先点击「用系统编辑器打开」");
+            return;
+        }
+        QByteArray ba = f.readAll();
+        f.close();
         appendLog("======================================================");
         if (fpr_apply_xml(m_pass->text().toUtf8().constData(), m_names[sel],
                           ba.constData(), logCallback, this) == 0)
@@ -575,7 +719,7 @@ void MainWindow::onAbout()
     top->addWidget(icon);
 
     QVBoxLayout *info = new QVBoxLayout;
-    QLabel *l = new QLabel(QStringLiteral("kvm-fpr v1.1.0\nKVM 硬件指纹刷新工具"));
+    QLabel *l = new QLabel(QStringLiteral("kvm-fpr v1.1.1\nKVM 硬件指纹刷新工具"));
     QFont f = l->font();
     f.setBold(true);
     l->setFont(f);

@@ -63,7 +63,8 @@ struct _app_t
     Edit *xml_editor;   /* 查看文件对话框编辑器 */
 };
 
-static void i_OnHelp(App *app, Event *e); /* 前向声明 */
+static void i_OnHelp(App *app, Event *e);  /* 前向声明 */
+static void i_OnAbout(App *app, Event *e); /* 前向声明 */
 static void i_load_items(App *app);      /* 前向声明 */
 
 /*---------------------------------------------------------------------------*/
@@ -306,6 +307,33 @@ static void i_OnViewClose(Window *window, Event *e)
 
 /*---------------------------------------------------------------------------*/
 
+static void i_OnViewOpen(App *app, Event *e)
+{
+    int sel;
+    char path[512];
+    char cmd[1024];
+    const char *home;
+    unref(e);
+    sel = (int)popup_get_selected(app->pop_vm);
+    if (sel < 0 || sel >= app->vm_count)
+        return;
+    home = getenv("HOME");
+    if (home == NULL)
+        home = "/tmp";
+    snprintf(path, sizeof(path), "%s/.cache/kvm-fpr/%s.xml", home, app->vm_names[sel]);
+    snprintf(cmd, sizeof(cmd), "%s/.cache/kvm-fpr", home);
+    mkdir(cmd, 0700);
+    if (fpr_export_xml(edit_get_text(app->edit_pass), app->vm_names[sel],
+                       path, i_log_ctx, app) != 0)
+        return;
+    i_log(app, ">> XML 已导出：%s，正在用系统文本编辑器打开 ...", path);
+    snprintf(cmd, sizeof(cmd), "xdg-open '%s' >/dev/null 2>&1 &", path);
+    system(cmd);
+    i_log(app, ">> 请在系统编辑器中修改并保存，然后回到此处点「保存并应用」");
+}
+
+/*---------------------------------------------------------------------------*/
+
 static void i_OnViewSave(App *app, Event *e)
 {
     int sel;
@@ -355,22 +383,30 @@ static void i_OnViewXml(App *app, Event *e)
     free(xml);
     app->xml_editor = editor;
     btn_save = button_push();
-    button_text(btn_save, "保存并应用");
-    button_OnClick(btn_save, listener(app, i_OnViewSave, App));
+    button_text(btn_save, "用系统编辑器打开");
+    button_OnClick(btn_save, listener(app, i_OnViewOpen, App));
     btn_close = button_push();
-    button_text(btn_close, "关闭");
-    button_OnClick(btn_close, listener(dlg, i_OnViewClose, Window));
+    button_text(btn_close, "保存并应用");
+    button_OnClick(btn_close, listener(app, i_OnViewSave, App));
+    {
+        Button *btn_x = button_push();
+        button_text(btn_x, "关闭");
+        button_OnClick(btn_x, listener(dlg, i_OnViewClose, Window));
+        layout_button(layout, btn_x, 0, 3);
+        layout_halign(layout, 0, 3, ekRIGHT);
+    }
 
     layout_edit(layout, editor, 0, 0);
     layout_button(layout, btn_save, 0, 1);
     layout_button(layout, btn_close, 0, 2);
     layout_halign(layout, 0, 1, ekLEFT);
-    layout_halign(layout, 0, 2, ekRIGHT);
-    layout_vsize(layout, 0, 460);
+    layout_halign(layout, 0, 2, ekLEFT);
+    layout_vsize(layout, 0, 440);
     layout_hexpand(layout, 0);
     layout_margin(layout, 8);
     layout_vmargin(layout, 0, 8);
     layout_vmargin(layout, 1, 4);
+    layout_vmargin(layout, 2, 4);
 
     panel_layout(panel, layout);
     window_panel(dlg, panel);
@@ -542,6 +578,72 @@ static void i_OnApply(App *app, Event *e)
 
 /*---------------------------------------------------------------------------*/
 
+static void i_MenuHelp(App *app, Event *e)
+{
+    unref(e);
+    i_OnHelp(app, NULL);
+}
+
+/*---------------------------------------------------------------------------*/
+
+static void i_MenuAbout(App *app, Event *e)
+{
+    unref(e);
+    i_OnAbout(app, NULL);
+}
+
+/*---------------------------------------------------------------------------*/
+
+static void i_MenuQuit(App *app, Event *e)
+{
+    osapp_finish();
+    unref(app);
+    unref(e);
+}
+
+/*---------------------------------------------------------------------------*/
+
+static void i_BuildMenu(App *app)
+{
+    Menu *menubar = menu_create();
+    MenuItem *mi;
+    Menu *sub;
+
+    /* 文件 */
+    mi = menuitem_create();
+    menuitem_text(mi, "文件");
+    sub = menu_create();
+    {
+        MenuItem *miq = menuitem_create();
+        menuitem_text(miq, "退出");
+        menuitem_OnClick(miq, listener(app, i_MenuQuit, App));
+        menu_add_item(sub, miq);
+    }
+    menuitem_submenu(mi, &sub);
+    menu_add_item(menubar, mi);
+
+    /* 帮助 */
+    mi = menuitem_create();
+    menuitem_text(mi, "帮助");
+    sub = menu_create();
+    {
+        MenuItem *miu = menuitem_create();
+        menuitem_text(miu, "使用说明");
+        menuitem_OnClick(miu, listener(app, i_MenuHelp, App));
+        menu_add_item(sub, miu);
+        miu = menuitem_create();
+        menuitem_text(miu, "关于");
+        menuitem_OnClick(miu, listener(app, i_MenuAbout, App));
+        menu_add_item(sub, miu);
+    }
+    menuitem_submenu(mi, &sub);
+    menu_add_item(menubar, mi);
+
+    osapp_menubar(menubar, app->window);
+}
+
+/*---------------------------------------------------------------------------*/
+
 static void i_OnClose(App *app, Event *e)
 {
     osapp_finish();
@@ -686,7 +788,7 @@ static void i_OnAbout(App *app, Event *e)
         imageview_image(icon, img);
 
     title = label_create();
-    label_text(title, "kvm-fpr v1.1.0\nKVM 硬件指纹刷新工具");
+    label_text(title, "kvm-fpr v1.1.1\nKVM 硬件指纹刷新工具");
     copyright = label_create();
     label_text(copyright, "版权：© 2026 彭刚要");
     mail1 = label_create();
@@ -754,7 +856,7 @@ static void i_OnAbout(App *app, Event *e)
 static Panel *i_panel(App *app)
 {
     Panel *panel = panel_create();
-    Layout *root = layout_create(1, 3);
+    Layout *root = layout_create(1, 4);
     Layout *top = layout_create(6, 7);
     Label *l1 = label_create();
     Label *l2 = label_create();
@@ -897,18 +999,44 @@ static Panel *i_panel(App *app)
         }
         layout_margin(app->tbl, 2);
         panel_layout(tpanel, app->tbl);
-        layout_panel(root, tpanel, 0, 1);
+        layout_panel(root, tpanel, 0, 2);
     }
 
     /* 日志区 */
     app->log = textview_create();
 
-    layout_layout(root, top, 0, 0);
-    layout_textview(root, app->log, 0, 2);
+    /* 品牌栏（Deepin DDE 风格：图标 + 标题 + 版本） */
+    {
+        Panel *bpanel = panel_create();
+        Layout *bl = layout_create(3, 1);
+        ImageView *bicon = imageview_create();
+        Image *bimg;
+        Label *btitle = label_create();
+        Label *bver = label_create();
+        imageview_size(bicon, s2df(28, 28));
+        bimg = image_from_data(kIconData, kIconDataSize);
+        if (bimg != NULL)
+            imageview_image(bicon, bimg);
+        label_text(btitle, "KVM 硬件指纹刷新工具");
+        label_text(bver, "v1.1.1");
+        layout_imageview(bl, bicon, 0, 0);
+        layout_label(bl, btitle, 1, 0);
+        layout_label(bl, bver, 2, 0);
+        layout_hexpand(bl, 1);
+        layout_halign(bl, 2, 0, ekRIGHT);
+        layout_vsize(bl, 0, 32);
+        layout_margin(bl, 4);
+        panel_layout(bpanel, bl);
+        layout_panel(root, bpanel, 0, 0);
+    }
+
+    layout_layout(root, top, 0, 1);
+    layout_textview(root, app->log, 0, 3);
     layout_margin(root, 6);
-    layout_vmargin(root, 0, 6);
+    layout_vmargin(root, 0, 4);
     layout_vmargin(root, 1, 6);
-    layout_vexpand(root, 2);
+    layout_vmargin(root, 2, 6);
+    layout_vexpand(root, 3);
     layout_vsize(top, 0, 34);
     layout_vsize(top, 1, 34);
     layout_vsize(top, 2, 34);
@@ -920,7 +1048,7 @@ static Panel *i_panel(App *app)
     layout_hsize(top, 1, 220);
     layout_hsize(top, 2, 90);
 
-    panel_layout(panel, root);
+    panel_layout(panel, root);    panel_layout(panel, root);
     return panel;
 }
 
@@ -938,6 +1066,7 @@ static App *i_create(void)
     window_origin(app->window, v2df(180, 60));
     window_OnClose(app->window, listener(app, i_OnClose, App));
     window_show(app->window);
+    i_BuildMenu(app);
 
     /* 填充品牌模板下拉（内置 + 用户自定义） */
     fpr_list_templates(&app->tpls, &app->tpl_count);

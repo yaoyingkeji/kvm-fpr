@@ -1706,3 +1706,25 @@ int fpr_apply_xml(const char *sudo_pass, const char *vm, const char *xml_text,
     i_logf(log, ctx, "[完成] 已应用编辑后的 XML 配置");
     return 0;
 }
+
+/*---------------------------------------------------------------------------*/
+
+int fpr_export_xml(const char *sudo_pass, const char *vm, const char *path,
+                   FprLogFn log, void *ctx)
+{
+    char *xml = NULL;
+    FILE *f;
+    if (fpr_dumpxml(sudo_pass, vm, &xml, log, ctx) != 0)
+        return -1;
+    f = fopen(path, "w");
+    if (f == NULL)
+    {
+        i_logf(log, ctx, "[错误] 无法写入文件 %s", path);
+        free(xml);
+        return -1;
+    }
+    fwrite(xml, 1, strlen(xml), f);
+    fclose(f);
+    free(xml);
+    return 0;
+}

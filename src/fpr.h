@@ -164,6 +164,10 @@ int fpr_dumpxml(const char *sudo_pass, const char *vm, char **xml_out,
 int fpr_apply_xml(const char *sudo_pass, const char *vm, const char *xml_text,
                   FprLogFn log, void *ctx);
 
+/* 导出虚拟机 XML 到指定文件（系统文本编辑器查看/编辑用） */
+int fpr_export_xml(const char *sudo_pass, const char *vm, const char *path,
+                   FprLogFn log, void *ctx);
+
 #ifdef __cplusplus
 }
 #endif

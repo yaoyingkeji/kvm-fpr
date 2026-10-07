@@ -15,7 +15,7 @@
 # ============================================================
 set -e
 
-VERSION="${1:-1.1.0}"
+VERSION="${1:-1.1.1}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="$ROOT/build/pkgs"
 ICON="$ROOT/packaging/kvm-fpr.png"
@@ -98,8 +98,8 @@ EOF
     echo "   .AppImage 完成: $ROOT/${BIN}-${VERSION}-x86_64.AppImage"
 }
 
-pack_variant gtk    kvm-fpr-gtk    "$ROOT/gtk/kvm-fpr-gtk.desktop"    "libgtk-3-0 (>= 3.10), libvirt-clients, python3, sudo"
-pack_variant qt     kvm-fpr-qt     "$ROOT/qt/kvm-fpr-qt.desktop"     "libqt5widgets5 (>= 5.5), libvirt-clients, python3, sudo"
+pack_variant gtk    kvm-fpr-gtk    "$ROOT/gtk/kvm-fpr-gtk.desktop"    "libgtk-4-1 (>= 4.10), libvirt-clients, python3, sudo"
+pack_variant qt     kvm-fpr-qt     "$ROOT/qt/kvm-fpr-qt.desktop"     "libqt6widgets6 (>= 6.4), libvirt-clients, python3, sudo"
 
 echo ""
 echo "完成！GTK / Qt 版安装包："

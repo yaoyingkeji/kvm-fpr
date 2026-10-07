@@ -10,13 +10,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # 用法：./build_qt.sh
-# 依赖：qtbase5-dev（qmake / qtchooser）
+# 依赖：qt6-base-dev（qmake6）
 # ============================================================
 set -e
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
-QT_SELECT=qt5 qmake main_qt.pro
-QT_SELECT=qt5 make -j"$(nproc)"
+qmake6 main_qt.pro 2>/dev/null || QT_SELECT=qt6 qmake main_qt.pro
+make -j"$(nproc)" 2>/dev/null || QT_SELECT=qt6 make -j"$(nproc)"
 
 echo "构建完成：$ROOT/kvm-fpr-qt"

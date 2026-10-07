@@ -16,7 +16,7 @@ set -e
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 OUT="$ROOT/kvm-fpr-gtk"
 
-gcc -O2 -Wall -I"$ROOT/../src" "$ROOT/main_gtk.c" "$ROOT/../src/fpr.c" \
-    $(pkg-config --cflags --libs gtk+-3.0) -o "$OUT"
+gcc -O2 -Wall -I"$ROOT/../src" "$ROOT/main_gtk.c" "$ROOT/../src/fpr.c" "$ROOT/../src/theme.c" \
+    $(pkg-config --cflags --libs gtk4) -o "$OUT"
 
 echo "构建完成：$OUT"

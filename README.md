@@ -22,6 +22,9 @@
 | 查看文件 | 直接打开虚拟机 XML 配置进行编辑查看并保存应用 |
 | 品牌模板 | 联想/戴尔/惠普/华硕/宏碁/小米等品牌伪装，支持自定义模板 |
 | 防检测 | 隐藏 KVM/hypervisor 标志、禁用 vmport、HyperV 厂商 ID 注入 |
+| 主题 | 跟随系统亮/暗 + 内置皮肤（星云蓝/暗夜黑/青翠绿/樱粉/晨曦金）+ 用户自建 |
+| 系统编辑器 | 查看文件调用系统文本编辑器编辑 XML |
+| 平台适配 | GTK4/Qt6 双引擎，支持 X11/Wayland，适配 Deepin 25 (V25.2.2) |
 | 保留自启 | 自动保留并恢复虚拟机的开机自启设置 |
 | UEFI 支持 | 含 UEFI nvram 的虚拟机自动重建 nvram |
 
@@ -31,27 +34,27 @@
 
 | 版本 | 特点 | 安装包 |
 |---|---|---|
-| NAppGUI 版 | 单文件、体积最小 | `kvm-fpr_1.1.0_amd64.deb` / `kvm-fpr-1.1.0-x86_64.AppImage` |
-| GTK3 版 | 依赖系统 GTK3 | `kvm-fpr-gtk_1.1.0_amd64.deb` / `kvm-fpr-gtk-1.1.0-x86_64.AppImage` |
-| Qt5 版 | 依赖系统 Qt5 | `kvm-fpr-qt_1.1.0_amd64.deb` / `kvm-fpr-qt-1.1.0-x86_64.AppImage` |
+| NAppGUI 版 | 单文件、体积最小 | `kvm-fpr_1.1.1_amd64.deb` / `kvm-fpr-1.1.1-x86_64.AppImage` |
+| GTK4 版 | 依赖系统 GTK4，支持 X11/Wayland | `kvm-fpr-gtk_1.1.1_amd64.deb` / `kvm-fpr-gtk-1.1.1-x86_64.AppImage` |
+| Qt6 版 | 依赖系统 Qt6（LGPL 动态链接合规） | `kvm-fpr-qt_1.1.1_amd64.deb` / `kvm-fpr-qt-1.1.1-x86_64.AppImage` |
 
 ### Debian / Deepin / Ubuntu（.deb）
 
 ```bash
-sudo dpkg -i kvm-fpr_1.1.0_amd64.deb        # NAppGUI 版
-sudo dpkg -i kvm-fpr-gtk_1.1.0_amd64.deb    # GTK3 版
-sudo dpkg -i kvm-fpr-qt_1.1.0_amd64.deb     # Qt5 版
+sudo dpkg -i kvm-fpr_1.1.1_amd64.deb        # NAppGUI 版
+sudo dpkg -i kvm-fpr-gtk_1.1.1_amd64.deb    # GTK3 版
+sudo dpkg -i kvm-fpr-qt_1.1.1_amd64.deb     # Qt5 版
 ```
 
 ### 任意发行版（.AppImage）
 
 ```bash
-chmod +x kvm-fpr-1.1.0-x86_64.AppImage      # NAppGUI 版
-./kvm-fpr-1.1.0-x86_64.AppImage
-chmod +x kvm-fpr-gtk-1.1.0-x86_64.AppImage  # GTK3 版
-./kvm-fpr-gtk-1.1.0-x86_64.AppImage
-chmod +x kvm-fpr-qt-1.1.0-x86_64.AppImage   # Qt5 版
-./kvm-fpr-qt-1.1.0-x86_64.AppImage
+chmod +x kvm-fpr-1.1.1-x86_64.AppImage      # NAppGUI 版
+./kvm-fpr-1.1.1-x86_64.AppImage
+chmod +x kvm-fpr-gtk-1.1.1-x86_64.AppImage  # GTK3 版
+./kvm-fpr-gtk-1.1.1-x86_64.AppImage
+chmod +x kvm-fpr-qt-1.1.1-x86_64.AppImage   # Qt5 版
+./kvm-fpr-qt-1.1.1-x86_64.AppImage
 ```
 
 ## 🚀 快速开始
